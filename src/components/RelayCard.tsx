@@ -10,7 +10,9 @@ import {
   ToggleLeft,
   ToggleRight,
   Zap,
-  Loader2
+  Loader2,
+  Edit2,
+  Check
 } from 'lucide-react';
 import { Relay } from '@/types';
 import { useRelayStore } from '@/store/relayStore';
@@ -24,7 +26,15 @@ interface RelayCardProps {
 export default function RelayCard({ relay, onEdit }: RelayCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const { toggleRelay, setRelayState, setRelayMode, selectRelay, selectedRelayId, controlRelay, getActiveMac } = useRelayStore();
+  const { 
+    setRelayMode, 
+    selectRelay, 
+    selectedRelayId, 
+    controlRelay, 
+    getActiveMac,
+    aliases,
+    setAlias
+  } = useRelayStore();
   
   const isSelected = selectedRelayId === relay.id;
   const isDisabled = relay.mode === 'disabled';
@@ -32,6 +42,29 @@ export default function RelayCard({ relay, onEdit }: RelayCardProps) {
 
   // Extract relay number from id (e.g., "relay-1" -> 1)
   const relayNum = parseInt(relay.id.split('-')[1], 10);
+
+  // Alias
+  const mac = getActiveMac();
+  const aliasName = mac ? aliases[mac]?.relays?.[relayNum] : undefined;
+  const displayName = aliasName || relay.name;
+
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState(displayName);
+
+  const handleSaveAlias = () => {
+    if (mac && editNameValue.trim() !== '' && editNameValue !== displayName) {
+      setAlias(mac, undefined, relayNum, editNameValue.trim());
+    }
+    setIsEditingName(false);
+  };
+  
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleSaveAlias();
+    if (e.key === 'Escape') {
+      setEditNameValue(displayName);
+      setIsEditingName(false);
+    }
+  };
 
   const handleMqttControl = async (state: 'on' | 'off' | 'toggle') => {
     const mac = getActiveMac();
@@ -92,8 +125,40 @@ export default function RelayCard({ relay, onEdit }: RelayCardProps) {
                 )} 
               />
             </div>
-            <div>
-              <h3 className="font-semibold text-white">{relay.name}</h3>
+            <div className="flex-1">
+              {isEditingName ? (
+                <div 
+                  className="flex items-center gap-2"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <input
+                    type="text"
+                    value={editNameValue}
+                    onChange={e => setEditNameValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onBlur={handleSaveAlias}
+                    autoFocus
+                    className="bg-industrial-800 text-white border border-accent-cyan/50 rounded px-2 py-0.5 text-sm w-full outline-none focus:ring-1 focus:ring-accent-cyan"
+                  />
+                  <button onClick={handleSaveAlias} className="text-accent-cyan hover:text-white transition-colors">
+                    <Check size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 group">
+                  <h3 className="font-semibold text-white">{displayName}</h3>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditNameValue(displayName);
+                      setIsEditingName(true);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-industrial-500 hover:text-white transition-all hidden sm:block"
+                  >
+                    <Edit2 size={12} />
+                  </button>
+                </div>
+              )}
               <p className="text-xs text-industrial-400">{relay.description}</p>
             </div>
           </div>

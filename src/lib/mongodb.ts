@@ -27,3 +27,8 @@ export async function getMqttPacketsCollection(): Promise<Collection> {
   const database = await getDatabase();
   return database.collection(COLLECTION_NAME);
 }
+
+export async function getAliasesCollection(): Promise<Collection> {
+  const database = await getDatabase();
+  return database.collection('aliases');
+}

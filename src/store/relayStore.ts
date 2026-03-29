@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { Relay, Schedule, ActivityLog, DashboardStats, RelayGroup } from '@/types';
 
+export interface DeviceAlias {
+  mac: string;
+  deviceName?: string;
+  relays?: Record<number, string>;
+  updatedAt: string;
+}
+
 // === Device types for live MongoDB data ===
 export interface LiveRelayState {
   id: string;
@@ -151,8 +158,13 @@ interface RelayStore {
   // Live device data
   deviceStatuses: DeviceStatus[];
   deviceHealths: DeviceHealth[];
+  aliases: Record<string, DeviceAlias>;
   lastFetched: string | null;
   fetchError: string | null;
+
+  // Alias Actions
+  fetchAliases: () => Promise<void>;
+  setAlias: (mac: string, deviceName?: string, relayNum?: number, relayName?: string) => Promise<void>;
 
   // Relay Actions
   setRelays: (relays: Relay[]) => void;
@@ -211,6 +223,7 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
   // Live device data
   deviceStatuses: [],
   deviceHealths: [],
+  aliases: {},
   lastFetched: null,
   fetchError: null,
 
@@ -429,8 +442,61 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
     await Promise.all([
       get().fetchDeviceStatus(),
       get().fetchDeviceHealth(),
+      get().fetchAliases(),
     ]);
     set({ isLoading: false });
+  },
+
+  // === Alias Actions ===
+  fetchAliases: async () => {
+    try {
+      const res = await fetch('/api/aliases');
+      const json = await res.json();
+      if (json.success && json.data) {
+        const aliasRecord: Record<string, DeviceAlias> = {};
+        json.data.forEach((alias: DeviceAlias) => {
+          aliasRecord[alias.mac] = alias;
+        });
+        set({ aliases: aliasRecord });
+      }
+    } catch (error) {
+      console.error('Failed to fetch aliases:', error);
+    }
+  },
+
+  setAlias: async (mac, deviceName, relayNum, relayName) => {
+    try {
+      const payload: any = { mac };
+      if (deviceName !== undefined) payload.deviceName = deviceName;
+      if (relayNum !== undefined && relayName !== undefined) {
+        payload.relayNum = relayNum;
+        payload.relayName = relayName;
+      }
+
+      // Optimistically update
+      set((state) => {
+        const currentAlias = state.aliases[mac] || { mac, relays: {}, updatedAt: new Date().toISOString() };
+        const newAlias = { ...currentAlias, relays: { ...currentAlias.relays } };
+        
+        if (deviceName !== undefined) newAlias.deviceName = deviceName;
+        if (relayNum !== undefined && relayName !== undefined) {
+          newAlias.relays![relayNum] = relayName;
+        }
+        newAlias.updatedAt = new Date().toISOString();
+
+        return { aliases: { ...state.aliases, [mac]: newAlias } };
+      });
+
+      // API Call
+      await fetch('/api/aliases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      // Optionally re-fetch aliases to ensure sync
+    } catch (error) {
+      console.error('Failed to set alias:', error);
+    }
   },
 
   // === MQTT Control Actions ===

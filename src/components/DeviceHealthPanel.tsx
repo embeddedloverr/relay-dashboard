@@ -10,8 +10,11 @@ import {
   HardDrive,
   ArrowUp,
   ArrowDown,
+  Edit2,
+  Check
 } from 'lucide-react';
 import { useRelayStore, DeviceHealth } from '@/store/relayStore';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
 function getRssiColor(rssi: number): string {
@@ -52,6 +55,28 @@ function formatLastSeen(seconds: number): string {
 }
 
 function DeviceHealthCard({ device }: { device: DeviceHealth }) {
+  const { aliases, setAlias } = useRelayStore();
+  const aliasName = aliases[device.mac]?.deviceName;
+  const displayName = aliasName || device.mac;
+
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState(displayName);
+
+  const handleSaveAlias = () => {
+    if (editNameValue.trim() !== '' && editNameValue !== displayName) {
+      setAlias(device.mac, editNameValue.trim());
+    }
+    setIsEditingName(false);
+  };
+  
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleSaveAlias();
+    if (e.key === 'Escape') {
+      setEditNameValue(displayName);
+      setIsEditingName(false);
+    }
+  };
+
   return (
     <div className={cn(
       'card overflow-hidden transition-all duration-300',
@@ -79,10 +104,42 @@ function DeviceHealthCard({ device }: { device: DeviceHealth }) {
                 <WifiOff size={20} className="text-relay-off" />
               )}
             </div>
-            <div>
-              <h3 className="font-semibold text-white font-mono text-sm">
-                {device.mac}
-              </h3>
+            <div className="flex-1">
+              {isEditingName ? (
+                <div 
+                  className="flex items-center gap-2 mb-1"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <input
+                    type="text"
+                    value={editNameValue}
+                    onChange={e => setEditNameValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onBlur={handleSaveAlias}
+                    autoFocus
+                    className="bg-industrial-800 text-white font-mono border border-accent-cyan/50 rounded px-2 py-0.5 text-sm w-full outline-none focus:ring-1 focus:ring-accent-cyan"
+                  />
+                  <button onClick={handleSaveAlias} className="text-accent-cyan hover:text-white transition-colors">
+                    <Check size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 group mb-1">
+                  <h3 className="font-semibold text-white font-mono text-sm">
+                    {displayName}
+                  </h3>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditNameValue(displayName);
+                      setIsEditingName(true);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-industrial-500 hover:text-white transition-all hidden sm:block"
+                  >
+                    <Edit2 size={12} />
+                  </button>
+                </div>
+              )}
               <div className="flex items-center gap-1.5">
                 <div className={cn(
                   'status-dot',
