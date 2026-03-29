@@ -102,6 +102,17 @@ export default function ScheduleModal({
     ));
   };
 
+  // Check if a relay is in auto mode
+  const isRelayAuto = (relayNum: number): boolean => {
+    const relay = relays.find(r => r.id === `relay-${relayNum}`);
+    return relay?.mode === 'auto';
+  };
+
+  const getRelayMode = (relayNum: number): string => {
+    const relay = relays.find(r => r.id === `relay-${relayNum}`);
+    return relay?.mode || 'manual';
+  };
+
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
@@ -113,6 +124,12 @@ export default function ScheduleModal({
       if (!entry.on) newErrors[`entry_${i}_on`] = 'ON time required';
       if (!entry.off) newErrors[`entry_${i}_off`] = 'OFF time required';
       if (entry.relay < 1 || entry.relay > 6) newErrors[`entry_${i}_relay`] = 'Relay 1-6';
+
+      // Enforce auto mode for scheduling
+      if (!isRelayAuto(entry.relay)) {
+        const mode = getRelayMode(entry.relay);
+        newErrors[`entry_${i}_mode`] = `Relay ${entry.relay} is in ${mode} mode. Switch to Auto mode to use scheduling.`;
+      }
     });
 
     // Check for duplicate relays
@@ -297,18 +314,31 @@ export default function ScheduleModal({
                     )}
                   </div>
 
+                  {/* Auto mode warning */}
+                  {!isRelayAuto(entry.relay) && (
+                    <div className="flex items-center gap-2 p-2 bg-relay-off/10 border border-relay-off/30 rounded-lg text-xs text-relay-off">
+                      <AlertCircle size={14} className="flex-shrink-0" />
+                      Relay {entry.relay} is in <span className="font-mono font-semibold">{getRelayMode(entry.relay)}</span> mode. Switch to <span className="font-mono font-semibold text-relay-on">auto</span> mode to enable scheduling.
+                    </div>
+                  )}
+                  {errors[`entry_${index}_mode`] && !errors[`entry_${index}_mode`].includes(getRelayMode(entry.relay)) && (
+                    <p className="text-xs text-relay-off flex items-center gap-1">
+                      <AlertCircle size={12} /> {errors[`entry_${index}_mode`]}
+                    </p>
+                  )}
+
                   <div className="grid grid-cols-3 gap-3">
                     {/* Relay Number */}
                     <div>
                       <label className="text-xs text-industrial-400 mb-1 block">Relay</label>
                       <select
-                        className={cn('input text-sm py-2', errors[`entry_${index}_relay`] && 'border-relay-off')}
+                        className={cn('input text-sm py-2', (errors[`entry_${index}_relay`] || errors[`entry_${index}_mode`]) && 'border-relay-off')}
                         value={entry.relay}
                         onChange={e => updateEntry(index, 'relay', parseInt(e.target.value))}
                       >
                         {[1, 2, 3, 4, 5, 6].map(n => (
                           <option key={n} value={n}>
-                            Relay {n}
+                            Relay {n} {!isRelayAuto(n) ? `(${getRelayMode(n)})` : '(auto)'}
                           </option>
                         ))}
                       </select>
