@@ -5,13 +5,15 @@ import {
   X, 
   Calendar, 
   Clock, 
-  Repeat, 
   Power, 
   Save,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Plus,
+  Send,
+  Loader2
 } from 'lucide-react';
-import { Schedule, DayOfWeek, Relay } from '@/types';
+import { Schedule, DayOfWeek } from '@/types';
 import { useRelayStore } from '@/store/relayStore';
 import { cn, generateId, getDayShort } from '@/lib/utils';
 
@@ -22,19 +24,14 @@ interface ScheduleModalProps {
   preselectedRelayId?: string;
 }
 
-const DAYS: DayOfWeek[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+// Device schedule entry — matches MQTT payload format
+interface DeviceScheduleEntry {
+  relay: number;
+  on: string;   // HH:mm
+  off: string;  // HH:mm
+}
 
-const DEFAULT_SCHEDULE: Omit<Schedule, 'id' | 'createdAt' | 'updatedAt'> = {
-  name: '',
-  relayId: '',
-  enabled: true,
-  action: 'ON',
-  scheduleType: 'daily',
-  time: '08:00',
-  days: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
-  intervalMinutes: 60,
-  durationMinutes: 30,
-};
+const DAYS: DayOfWeek[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
 export default function ScheduleModal({ 
   isOpen, 
@@ -42,8 +39,15 @@ export default function ScheduleModal({
   schedule, 
   preselectedRelayId 
 }: ScheduleModalProps) {
-  const { relays, addSchedule, updateSchedule, deleteSchedule } = useRelayStore();
-  const [formData, setFormData] = useState(DEFAULT_SCHEDULE);
+  const { relays, addSchedule, updateSchedule, deleteSchedule, sendScheduleToDevice, getActiveMac } = useRelayStore();
+  
+  // Device schedule entries (what gets sent to ESP32 via MQTT)
+  const [entries, setEntries] = useState<DeviceScheduleEntry[]>([
+    { relay: 1, on: '08:00', off: '20:00' },
+  ]);
+  const [scheduleName, setScheduleName] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -51,75 +55,146 @@ export default function ScheduleModal({
 
   useEffect(() => {
     if (schedule) {
-      setFormData({
-        name: schedule.name,
-        relayId: schedule.relayId,
-        enabled: schedule.enabled,
-        action: schedule.action,
-        scheduleType: schedule.scheduleType,
-        time: schedule.time || '08:00',
-        days: schedule.days || ['MON', 'TUE', 'WED', 'THU', 'FRI'],
-        intervalMinutes: schedule.intervalMinutes || 60,
-        durationMinutes: schedule.durationMinutes,
-        date: schedule.date,
-      });
+      setScheduleName(schedule.name);
+      // Convert existing schedule to device entry format
+      const relayNum = parseInt(schedule.relayId.split('-')[1], 10) || 1;
+      const onTime = schedule.time || '08:00';
+      // Calculate off time from duration if available
+      let offTime = '20:00';
+      if (schedule.time && schedule.durationMinutes) {
+        const [h, m] = schedule.time.split(':').map(Number);
+        const totalMinutes = h * 60 + m + schedule.durationMinutes;
+        const offH = Math.floor(totalMinutes / 60) % 24;
+        const offM = totalMinutes % 60;
+        offTime = `${String(offH).padStart(2, '0')}:${String(offM).padStart(2, '0')}`;
+      }
+      setEntries([{ relay: relayNum, on: onTime, off: offTime }]);
     } else {
-      setFormData({
-        ...DEFAULT_SCHEDULE,
-        relayId: preselectedRelayId || '',
-      });
+      setScheduleName('');
+      setEntries([{ relay: 1, on: '08:00', off: '20:00' }]);
     }
     setErrors({});
+    setSendResult(null);
     setShowDeleteConfirm(false);
-  }, [schedule, preselectedRelayId, isOpen]);
+  }, [schedule, isOpen]);
+
+  const addEntry = () => {
+    if (entries.length < 6) {
+      // Pick next available relay number
+      const usedRelays = entries.map(e => e.relay);
+      let nextRelay = 1;
+      for (let i = 1; i <= 6; i++) {
+        if (!usedRelays.includes(i)) { nextRelay = i; break; }
+      }
+      setEntries([...entries, { relay: nextRelay, on: '08:00', off: '20:00' }]);
+    }
+  };
+
+  const removeEntry = (index: number) => {
+    if (entries.length > 1) {
+      setEntries(entries.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateEntry = (index: number, field: keyof DeviceScheduleEntry, value: string | number) => {
+    setEntries(entries.map((entry, i) => 
+      i === index ? { ...entry, [field]: value } : entry
+    ));
+  };
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.name.trim()) {
+    if (!scheduleName.trim()) {
       newErrors.name = 'Schedule name is required';
     }
-    if (!formData.relayId) {
-      newErrors.relayId = 'Please select a relay';
-    }
-    if (!formData.time && formData.scheduleType !== 'interval') {
-      newErrors.time = 'Time is required';
-    }
-    if (formData.scheduleType === 'weekly' && (!formData.days || formData.days.length === 0)) {
-      newErrors.days = 'Select at least one day';
-    }
-    if (formData.scheduleType === 'once' && !formData.date) {
-      newErrors.date = 'Date is required for one-time schedule';
-    }
-    if (formData.scheduleType === 'interval' && (!formData.intervalMinutes || formData.intervalMinutes < 1)) {
-      newErrors.intervalMinutes = 'Interval must be at least 1 minute';
+
+    entries.forEach((entry, i) => {
+      if (!entry.on) newErrors[`entry_${i}_on`] = 'ON time required';
+      if (!entry.off) newErrors[`entry_${i}_off`] = 'OFF time required';
+      if (entry.relay < 1 || entry.relay > 6) newErrors[`entry_${i}_relay`] = 'Relay 1-6';
+    });
+
+    // Check for duplicate relays
+    const relayNums = entries.map(e => e.relay);
+    if (new Set(relayNums).size !== relayNums.length) {
+      newErrors.duplicate = 'Each relay can only have one schedule entry';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = () => {
+  const handleSaveLocal = () => {
     if (!validate()) return;
 
     const now = new Date().toISOString();
     
+    // Save first entry as the primary schedule in the local store
+    const firstEntry = entries[0];
+    const relayId = `relay-${firstEntry.relay}`;
+
     if (isEditing && schedule) {
       updateSchedule(schedule.id, {
-        ...formData,
+        name: scheduleName,
+        relayId,
+        time: firstEntry.on,
+        // Calculate duration from on/off times
+        durationMinutes: calculateDuration(firstEntry.on, firstEntry.off),
         updatedAt: now,
       });
     } else {
       const newSchedule: Schedule = {
-        ...formData,
         id: generateId('sch'),
+        name: scheduleName,
+        relayId,
+        enabled: true,
+        action: 'ON',
+        scheduleType: 'daily',
+        time: firstEntry.on,
+        durationMinutes: calculateDuration(firstEntry.on, firstEntry.off),
         createdAt: now,
         updatedAt: now,
       };
       addSchedule(newSchedule);
     }
-    
-    onClose();
+  };
+
+  const handleSendToDevice = async () => {
+    if (!validate()) return;
+
+    const mac = getActiveMac();
+    if (!mac) {
+      setSendResult({ success: false, message: 'No device connected. Connect a device first.' });
+      return;
+    }
+
+    setIsSending(true);
+    setSendResult(null);
+
+    try {
+      const success = await sendScheduleToDevice(mac, entries);
+      
+      if (success) {
+        // Also save locally
+        handleSaveLocal();
+        setSendResult({ success: true, message: `Schedule sent to device ${mac}` });
+        // Close after a short delay
+        setTimeout(() => {
+          onClose();
+        }, 1500);
+      } else {
+        setSendResult({ success: false, message: 'Failed to send schedule. Check MQTT broker connection.' });
+      }
+    } catch {
+      setSendResult({ success: false, message: 'Error sending schedule to device.' });
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleSaveAndSend = async () => {
+    await handleSendToDevice();
   };
 
   const handleDelete = () => {
@@ -127,14 +202,6 @@ export default function ScheduleModal({
       deleteSchedule(schedule.id);
       onClose();
     }
-  };
-
-  const toggleDay = (day: DayOfWeek) => {
-    const currentDays = formData.days || [];
-    const newDays = currentDays.includes(day)
-      ? currentDays.filter(d => d !== day)
-      : [...currentDays, day];
-    setFormData({ ...formData, days: newDays });
   };
 
   if (!isOpen) return null;
@@ -153,10 +220,10 @@ export default function ScheduleModal({
             </div>
             <div>
               <h2 className="text-lg font-semibold text-white">
-                {isEditing ? 'Edit Schedule' : 'New Schedule'}
+                {isEditing ? 'Edit Schedule' : 'New Device Schedule'}
               </h2>
               <p className="text-sm text-industrial-400">
-                {isEditing ? 'Modify schedule settings' : 'Create automated relay control'}
+                Set ON/OFF times for relays — pushed to device via MQTT
               </p>
             </div>
           </div>
@@ -176,9 +243,9 @@ export default function ScheduleModal({
             <input
               type="text"
               className={cn('input', errors.name && 'border-relay-off')}
-              placeholder="e.g., Morning Pump Cycle"
-              value={formData.name}
-              onChange={e => setFormData({ ...formData, name: e.target.value })}
+              placeholder="e.g., Daily Pump Schedule"
+              value={scheduleName}
+              onChange={e => setScheduleName(e.target.value)}
             />
             {errors.name && (
               <p className="text-xs text-relay-off mt-1 flex items-center gap-1">
@@ -187,210 +254,123 @@ export default function ScheduleModal({
             )}
           </div>
 
-          {/* Relay Selection */}
+          {/* Schedule Entries */}
           <div>
-            <label className="input-label">Target Relay</label>
-            <select
-              className={cn('input', errors.relayId && 'border-relay-off')}
-              value={formData.relayId}
-              onChange={e => setFormData({ ...formData, relayId: e.target.value })}
-            >
-              <option value="">Select a relay...</option>
-              {relays.map(relay => (
-                <option key={relay.id} value={relay.id}>
-                  {relay.name} (GPIO {relay.gpio})
-                </option>
-              ))}
-            </select>
-            {errors.relayId && (
-              <p className="text-xs text-relay-off mt-1 flex items-center gap-1">
-                <AlertCircle size={12} /> {errors.relayId}
+            <div className="flex items-center justify-between mb-3">
+              <label className="input-label mb-0">Relay Schedules</label>
+              {entries.length < 6 && (
+                <button
+                  type="button"
+                  onClick={addEntry}
+                  className="btn btn-ghost text-xs py-1 px-2"
+                >
+                  <Plus size={14} />
+                  Add Relay
+                </button>
+              )}
+            </div>
+
+            {errors.duplicate && (
+              <p className="text-xs text-relay-off mb-2 flex items-center gap-1">
+                <AlertCircle size={12} /> {errors.duplicate}
               </p>
             )}
-          </div>
 
-          {/* Action */}
-          <div>
-            <label className="input-label">Action</label>
-            <div className="flex gap-2">
-              {(['ON', 'OFF', 'TOGGLE'] as const).map(action => (
-                <button
-                  key={action}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, action })}
-                  className={cn(
-                    'flex-1 py-2.5 px-4 rounded-lg border font-medium transition-all flex items-center justify-center gap-2',
-                    formData.action === action
-                      ? action === 'ON'
-                        ? 'bg-relay-on/20 border-relay-on text-relay-on'
-                        : action === 'OFF'
-                        ? 'bg-relay-off/20 border-relay-off text-relay-off'
-                        : 'bg-accent-cyan/20 border-accent-cyan text-accent-cyan'
-                      : 'bg-industrial-700/50 border-industrial-600 text-industrial-300 hover:border-industrial-500'
-                  )}
+            <div className="space-y-3">
+              {entries.map((entry, index) => (
+                <div 
+                  key={index}
+                  className="p-4 bg-industrial-700/30 rounded-xl border border-industrial-600/50 space-y-3"
                 >
-                  <Power size={16} />
-                  {action}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Schedule Type */}
-          <div>
-            <label className="input-label">Schedule Type</label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { value: 'once', label: 'One Time', icon: Calendar },
-                { value: 'daily', label: 'Daily', icon: Clock },
-                { value: 'weekly', label: 'Weekly', icon: Repeat },
-                { value: 'interval', label: 'Interval', icon: Repeat },
-              ].map(type => (
-                <button
-                  key={type.value}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, scheduleType: type.value as any })}
-                  className={cn(
-                    'py-2.5 px-4 rounded-lg border font-medium transition-all flex items-center justify-center gap-2',
-                    formData.scheduleType === type.value
-                      ? 'bg-accent-cyan/20 border-accent-cyan text-accent-cyan'
-                      : 'bg-industrial-700/50 border-industrial-600 text-industrial-300 hover:border-industrial-500'
-                  )}
-                >
-                  <type.icon size={16} />
-                  {type.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Date (for one-time) */}
-          {formData.scheduleType === 'once' && (
-            <div>
-              <label className="input-label">Date</label>
-              <input
-                type="date"
-                className={cn('input', errors.date && 'border-relay-off')}
-                value={formData.date || ''}
-                onChange={e => setFormData({ ...formData, date: e.target.value })}
-                min={new Date().toISOString().split('T')[0]}
-              />
-              {errors.date && (
-                <p className="text-xs text-relay-off mt-1 flex items-center gap-1">
-                  <AlertCircle size={12} /> {errors.date}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Time (for non-interval) */}
-          {formData.scheduleType !== 'interval' && (
-            <div>
-              <label className="input-label">Time</label>
-              <input
-                type="time"
-                className={cn('input font-mono', errors.time && 'border-relay-off')}
-                value={formData.time || ''}
-                onChange={e => setFormData({ ...formData, time: e.target.value })}
-              />
-              {errors.time && (
-                <p className="text-xs text-relay-off mt-1 flex items-center gap-1">
-                  <AlertCircle size={12} /> {errors.time}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Days (for weekly) */}
-          {formData.scheduleType === 'weekly' && (
-            <div>
-              <label className="input-label">Days of Week</label>
-              <div className="flex gap-2">
-                {DAYS.map(day => (
-                  <button
-                    key={day}
-                    type="button"
-                    onClick={() => toggleDay(day)}
-                    className={cn(
-                      'flex-1 py-2 rounded-lg border font-medium text-sm transition-all',
-                      formData.days?.includes(day)
-                        ? 'bg-accent-cyan/20 border-accent-cyan text-accent-cyan'
-                        : 'bg-industrial-700/50 border-industrial-600 text-industrial-400 hover:border-industrial-500'
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white">
+                      Entry {index + 1}
+                    </span>
+                    {entries.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeEntry(index)}
+                        className="p-1 rounded hover:bg-industrial-600 text-industrial-400 hover:text-relay-off transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     )}
-                  >
-                    {getDayShort(day)}
-                  </button>
-                ))}
-              </div>
-              {errors.days && (
-                <p className="text-xs text-relay-off mt-1 flex items-center gap-1">
-                  <AlertCircle size={12} /> {errors.days}
-                </p>
-              )}
-            </div>
-          )}
+                  </div>
 
-          {/* Interval (for interval type) */}
-          {formData.scheduleType === 'interval' && (
-            <div>
-              <label className="input-label">Run Every (minutes)</label>
-              <input
-                type="number"
-                className={cn('input font-mono', errors.intervalMinutes && 'border-relay-off')}
-                value={formData.intervalMinutes || ''}
-                onChange={e => setFormData({ ...formData, intervalMinutes: parseInt(e.target.value) || 0 })}
-                min={1}
-                placeholder="60"
-              />
-              {errors.intervalMinutes && (
-                <p className="text-xs text-relay-off mt-1 flex items-center gap-1">
-                  <AlertCircle size={12} /> {errors.intervalMinutes}
-                </p>
-              )}
-            </div>
-          )}
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* Relay Number */}
+                    <div>
+                      <label className="text-xs text-industrial-400 mb-1 block">Relay</label>
+                      <select
+                        className={cn('input text-sm py-2', errors[`entry_${index}_relay`] && 'border-relay-off')}
+                        value={entry.relay}
+                        onChange={e => updateEntry(index, 'relay', parseInt(e.target.value))}
+                      >
+                        {[1, 2, 3, 4, 5, 6].map(n => (
+                          <option key={n} value={n}>
+                            Relay {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-          {/* Duration */}
+                    {/* ON Time */}
+                    <div>
+                      <label className="text-xs text-industrial-400 mb-1 block flex items-center gap-1">
+                        <Power size={10} className="text-relay-on" /> ON Time
+                      </label>
+                      <input
+                        type="time"
+                        className={cn('input text-sm py-2 font-mono', errors[`entry_${index}_on`] && 'border-relay-off')}
+                        value={entry.on}
+                        onChange={e => updateEntry(index, 'on', e.target.value)}
+                      />
+                    </div>
+
+                    {/* OFF Time */}
+                    <div>
+                      <label className="text-xs text-industrial-400 mb-1 block flex items-center gap-1">
+                        <Power size={10} className="text-relay-off" /> OFF Time
+                      </label>
+                      <input
+                        type="time"
+                        className={cn('input text-sm py-2 font-mono', errors[`entry_${index}_off`] && 'border-relay-off')}
+                        value={entry.off}
+                        onChange={e => updateEntry(index, 'off', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* MQTT Payload Preview */}
           <div>
-            <label className="input-label">
-              Auto-OFF Duration (minutes)
-              <span className="text-industrial-500 font-normal ml-1">- optional</span>
-            </label>
-            <input
-              type="number"
-              className="input font-mono"
-              value={formData.durationMinutes || ''}
-              onChange={e => setFormData({ ...formData, durationMinutes: parseInt(e.target.value) || undefined })}
-              min={1}
-              placeholder="Leave empty for no auto-off"
-            />
-            <p className="text-xs text-industrial-500 mt-1">
-              Relay will automatically turn OFF after this duration
-            </p>
+            <label className="input-label">MQTT Payload Preview</label>
+            <div className="bg-industrial-900 rounded-lg p-3 font-mono text-xs text-industrial-300 overflow-x-auto">
+              <span className="text-industrial-500">Topic: </span>
+              <span className="text-accent-cyan">sdwell/{'{MAC}'}/cmd/schedule</span>
+              <br />
+              <span className="text-industrial-500">Payload: </span>
+              <span className="text-relay-on">
+                {JSON.stringify(entries.map(e => ({ relay: e.relay, on: e.on, off: e.off })))}
+              </span>
+            </div>
           </div>
 
-          {/* Enabled Toggle */}
-          <div className="flex items-center justify-between p-4 bg-industrial-700/30 rounded-xl">
-            <div>
-              <p className="font-medium text-white">Enable Schedule</p>
-              <p className="text-sm text-industrial-400">Schedule will run when enabled</p>
+          {/* Send Result */}
+          {sendResult && (
+            <div className={cn(
+              'p-3 rounded-lg border flex items-center gap-2 text-sm',
+              sendResult.success 
+                ? 'bg-relay-on/10 border-relay-on/30 text-relay-on'
+                : 'bg-relay-off/10 border-relay-off/30 text-relay-off'
+            )}>
+              <AlertCircle size={16} />
+              {sendResult.message}
             </div>
-            <button
-              type="button"
-              onClick={() => setFormData({ ...formData, enabled: !formData.enabled })}
-              className={cn(
-                'toggle-switch',
-                formData.enabled ? 'bg-relay-on' : 'bg-industrial-600'
-              )}
-            >
-              <span
-                className={cn(
-                  'toggle-switch-thumb',
-                  formData.enabled ? 'translate-x-8' : 'translate-x-1'
-                )}
-              />
-            </button>
-          </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -431,13 +411,34 @@ export default function ScheduleModal({
             <button onClick={onClose} className="btn btn-ghost">
               Cancel
             </button>
-            <button onClick={handleSubmit} className="btn btn-primary">
-              <Save size={18} />
-              {isEditing ? 'Save Changes' : 'Create Schedule'}
+            <button 
+              onClick={handleSaveAndSend} 
+              disabled={isSending}
+              className={cn(
+                'btn btn-primary',
+                isSending && 'opacity-70 cursor-not-allowed'
+              )}
+            >
+              {isSending ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Send size={18} />
+              )}
+              {isSending ? 'Sending...' : 'Save & Send to Device'}
             </button>
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+// Helper: calculate minutes between two HH:mm times
+function calculateDuration(onTime: string, offTime: string): number {
+  const [onH, onM] = onTime.split(':').map(Number);
+  const [offH, offM] = offTime.split(':').map(Number);
+  const onMinutes = onH * 60 + onM;
+  let offMinutes = offH * 60 + offM;
+  if (offMinutes <= onMinutes) offMinutes += 24 * 60; // next day
+  return offMinutes - onMinutes;
 }
