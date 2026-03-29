@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMqttPacketsCollection } from '@/lib/mongodb';
+import { getMqttPacketsCollection, getDevicesCollection } from '@/lib/mongodb';
+import { decrypt } from '@/lib/auth';
 
 interface DeviceHealth {
   deviceId: string;
@@ -42,16 +43,44 @@ function getRssiQuality(rssi: number): string {
 // GET /api/device/health — fetch latest heartbeat for all devices
 export async function GET(request: NextRequest) {
   try {
+    const token = request.cookies.get('auth-token')?.value;
+    const payload = await decrypt(token);
+    
+    if (!payload?.userId) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const mac = searchParams.get('mac'); // optional: filter by specific MAC
     const onlineThreshold = parseInt(searchParams.get('threshold') || '60'); // seconds
 
     const collection = await getMqttPacketsCollection();
+    const devicesCollection = await getDevicesCollection();
 
-    // Build topic filter
-    const topicFilter = mac
-      ? `sdwell/${mac}/heartbeat`
-      : /^sdwell\/[^/]+\/heartbeat$/;
+    // 1. Determine allowed MACs for this user
+    let allowedMacs: string[] | null = null; // null means 'admin' -> all MACs allowed
+    if (payload.role !== 'admin') {
+      const allowedDevices = await devicesCollection.find({ allowedUsers: payload.userId }).toArray();
+      allowedMacs = allowedDevices.map(d => d.mac);
+      
+      if (allowedMacs.length === 0) {
+        return NextResponse.json({ success: true, data: [], count: 0 });
+      }
+
+      if (mac && !allowedMacs.includes(mac)) {
+        return NextResponse.json({ success: false, error: 'Access denied for this device' }, { status: 403 });
+      }
+    }
+
+    // Build topic filter based on permissions
+    let topicFilter: any = /^sdwell\/[^/]+\/heartbeat$/;
+    
+    if (mac) {
+      topicFilter = `sdwell/${mac}/heartbeat`;
+    } else if (allowedMacs !== null) {
+      const allowedTopics = allowedMacs.map(m => `sdwell/${m}/heartbeat`);
+      topicFilter = { $in: allowedTopics };
+    }
 
     // Aggregation: get latest heartbeat per device
     const pipeline: object[] = [
@@ -65,7 +94,7 @@ export async function GET(request: NextRequest) {
       pipeline.push(
         {
           $group: {
-            _id: '$json.id',
+            _id: { $ifNull: ['$json.mac', '$json.id'] },
             doc: { $first: '$$ROOT' },
           },
         },
@@ -83,10 +112,11 @@ export async function GET(request: NextRequest) {
         : now;
       const lastSeenAgo = Math.floor((now - receivedAt) / 1000);
       const uptimeSeconds = json.up || 0;
+      const deviceMac = json.mac || json.id || 'unknown';
 
       return {
-        deviceId: json.id || 'unknown',
-        mac: json.id || 'unknown',
+        deviceId: deviceMac,
+        mac: deviceMac,
         timestamp: json.ts || '',
         rssi: json.rssi || 0,
         rssiQuality: getRssiQuality(json.rssi || -100),

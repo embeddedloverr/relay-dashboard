@@ -9,10 +9,14 @@ import {
   WifiOff,
   Menu,
   X,
-  RefreshCw
+  RefreshCw,
+  LogOut,
+  User
 } from 'lucide-react';
 import { useRelayStore } from '@/store/relayStore';
+import { useAuthStore } from '@/store/authStore';
 import { format } from 'date-fns';
+import Link from 'next/link';
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -22,6 +26,7 @@ interface HeaderProps {
 export default function Header({ onMenuToggle, menuOpen }: HeaderProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const { getStats, isLoading, fetchAllLiveData, deviceHealths } = useRelayStore();
+  const { user, logout } = useAuthStore();
   const stats = getStats();
 
   const connected = deviceHealths.length > 0 && deviceHealths.some(d => d.isOnline);
@@ -98,30 +103,55 @@ export default function Header({ onMenuToggle, menuOpen }: HeaderProps) {
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleRefresh}
-              className={`p-2 rounded-lg text-industrial-400 hover:text-white hover:bg-industrial-700 transition-all ${
-                isLoading ? 'animate-spin' : ''
-              }`}
-              title="Refresh"
-            >
-              <RefreshCw size={20} />
-            </button>
-            <button
-              className="p-2 rounded-lg text-industrial-400 hover:text-white hover:bg-industrial-700 transition-all relative"
-              title="Notifications"
-            >
-              <Bell size={20} />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-accent-orange rounded-full" />
-            </button>
-            <button
-              className="p-2 rounded-lg text-industrial-400 hover:text-white hover:bg-industrial-700 transition-all"
-              title="Settings"
-            >
-              <Settings size={20} />
-            </button>
+          {/* Actions & User */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRefresh}
+                className={`p-2 rounded-lg text-industrial-400 hover:text-white hover:bg-industrial-700 transition-all ${
+                  isLoading ? 'animate-spin' : ''
+                }`}
+                title="Refresh"
+              >
+                <RefreshCw size={20} />
+              </button>
+              <button
+                className="p-2 rounded-lg text-industrial-400 hover:text-white hover:bg-industrial-700 transition-all relative"
+                title="Notifications"
+              >
+                <Bell size={20} />
+                <span className="absolute top-1 right-1 w-2 h-2 bg-accent-orange rounded-full" />
+              </button>
+              {user?.role === 'admin' && (
+                <Link
+                  href="/settings"
+                  className="p-2 rounded-lg text-industrial-400 hover:text-white hover:bg-industrial-700 transition-all block"
+                  title="Settings"
+                >
+                  <Settings size={20} />
+                </Link>
+              )}
+            </div>
+
+            {/* User Profile */}
+            {user && (
+              <div className="flex items-center gap-3 pl-4 border-l border-industrial-700">
+                <div className="hidden sm:block text-right">
+                  <p className="text-sm font-semibold text-white">{user.name}</p>
+                  <p className="text-xs text-industrial-400 font-mono uppercase tracking-wider">{user.role}</p>
+                </div>
+                <div className="w-9 h-9 rounded-full bg-industrial-800 border border-industrial-600 flex items-center justify-center text-accent-cyan">
+                  <User size={18} />
+                </div>
+                <button
+                  onClick={logout}
+                  className="ml-2 p-2 rounded-lg text-industrial-500 hover:text-accent-orange hover:bg-accent-orange/10 transition-all"
+                  title="Sign Out"
+                >
+                  <LogOut size={18} />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -32,3 +32,13 @@ export async function getAliasesCollection(): Promise<Collection> {
   const database = await getDatabase();
   return database.collection('aliases');
 }
+
+export async function getUsersCollection(): Promise<Collection> {
+  const database = await getDatabase();
+  return database.collection('users');
+}
+
+export async function getDevicesCollection(): Promise<Collection> {
+  const database = await getDatabase();
+  return database.collection('devices');
+}

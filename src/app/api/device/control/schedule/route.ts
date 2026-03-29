@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { publishMqtt } from '@/lib/mqttClient';
+import { verifyDeviceAccess } from '@/lib/auth';
 
 /**
  * POST /api/device/control/schedule
@@ -40,6 +41,13 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'mac is required (device MAC address)' },
         { status: 400 }
       );
+    }
+
+    // Security Authorization Check
+    const token = request.cookies.get('auth-token')?.value;
+    const hasAccess = await verifyDeviceAccess(mac, token);
+    if (!hasAccess) {
+      return NextResponse.json({ success: false, error: 'Access denied for this device' }, { status: 403 });
     }
 
     if (!schedules || !Array.isArray(schedules) || schedules.length === 0) {

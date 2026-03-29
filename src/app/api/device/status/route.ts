@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMqttPacketsCollection } from '@/lib/mongodb';
+import { getMqttPacketsCollection, getDevicesCollection } from '@/lib/mongodb';
+import { decrypt } from '@/lib/auth';
 
 // Relay names mapping (position in the 'r' string -> relay info)
 const RELAY_NAMES = [
@@ -46,15 +47,45 @@ function parseRelayStates(rField: string, mField: string): RelayState[] {
 // GET /api/device/status — fetch latest relay status for all devices
 export async function GET(request: NextRequest) {
   try {
+    const token = request.cookies.get('auth-token')?.value;
+    const payload = await decrypt(token);
+    
+    if (!payload?.userId) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const mac = searchParams.get('mac'); // optional: filter by specific MAC
 
     const collection = await getMqttPacketsCollection();
+    const devicesCollection = await getDevicesCollection();
 
-    // Build topic filter
-    const topicFilter = mac
-      ? `sdwell/${mac}/status`
-      : /^sdwell\/[^/]+\/status$/;
+    // 1. Determine allowed MACs for this user
+    let allowedMacs: string[] | null = null; // null means 'admin' -> all MACs allowed
+    if (payload.role !== 'admin') {
+      const allowedDevices = await devicesCollection.find({ allowedUsers: payload.userId }).toArray();
+      allowedMacs = allowedDevices.map(d => d.mac);
+      
+      // If user has no assigned devices, return empty immediately
+      if (allowedMacs.length === 0) {
+        return NextResponse.json({ success: true, data: [], count: 0 });
+      }
+
+      // If requested specific MAC but user doesn't have access
+      if (mac && !allowedMacs.includes(mac)) {
+        return NextResponse.json({ success: false, error: 'Access denied for this device' }, { status: 403 });
+      }
+    }
+
+    // Build topic filter based on permissions
+    let topicFilter: any = /^sdwell\/[^/]+\/status$/;
+    
+    if (mac) {
+      topicFilter = `sdwell/${mac}/status`;
+    } else if (allowedMacs !== null) {
+      const allowedTopics = allowedMacs.map(m => `sdwell/${m}/status`);
+      topicFilter = { $in: allowedTopics };
+    }
 
     // Aggregation: get latest status packet per device
     const pipeline: object[] = [
