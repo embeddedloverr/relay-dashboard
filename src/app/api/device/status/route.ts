@@ -16,6 +16,7 @@ interface RelayState {
   name: string;
   description: string;
   state: 'ON' | 'OFF';
+  mode: 'auto' | 'manual';
   position: number;
 }
 
@@ -27,14 +28,17 @@ interface DeviceStatus {
   ip: string;
   relays: RelayState[];
   relayRaw: string;
+  modeRaw: string;
+  scheduleCount: number;
   receivedAt: string;
 }
 
-// Parse the 'r' field: "100000" -> relay states array
-function parseRelayStates(rField: string): RelayState[] {
+// Parse the 'r' and 'm' fields: "100000", "000000" -> relay states array
+function parseRelayStates(rField: string, mField: string): RelayState[] {
   return RELAY_NAMES.map((relay, index) => ({
     ...relay,
     state: (rField[index] === '1' ? 'ON' : 'OFF') as 'ON' | 'OFF',
+    mode: (mField[index] === '1' ? 'manual' : 'auto') as 'auto' | 'manual',
     position: index + 1,
   }));
 }
@@ -63,10 +67,11 @@ export async function GET(request: NextRequest) {
       pipeline.push({ $limit: 1 });
     } else {
       // Multiple devices - get latest per unique device MAC
+      // Group by json.mac first, fallback to json.id for backwards compat
       pipeline.push(
         {
           $group: {
-            _id: '$json.id',
+            _id: { $ifNull: ['$json.mac', '$json.id'] },
             doc: { $first: '$$ROOT' },
           },
         },
@@ -79,15 +84,19 @@ export async function GET(request: NextRequest) {
     const devices: DeviceStatus[] = results.map((doc) => {
       const json = doc.json || {};
       const rField = json.r || '000000';
+      const mField = json.m || '000000';
+      const deviceMac = json.mac || json.id || 'unknown';
 
       return {
-        deviceId: json.id || 'unknown',
-        mac: json.id || 'unknown',
+        deviceId: deviceMac,
+        mac: deviceMac,
         timestamp: json.ts || '',
         rssi: json.rssi || 0,
         ip: json.ip || '',
-        relays: parseRelayStates(rField),
+        relays: parseRelayStates(rField, mField),
         relayRaw: rField,
+        modeRaw: mField,
+        scheduleCount: json.sch ?? 0,
         receivedAt: doc.receivedAt?.toISOString?.() || doc.receivedAt || '',
       };
     });

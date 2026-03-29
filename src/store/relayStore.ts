@@ -7,6 +7,7 @@ export interface LiveRelayState {
   name: string;
   description: string;
   state: 'ON' | 'OFF';
+  mode: 'auto' | 'manual';
   position: number;
 }
 
@@ -18,6 +19,8 @@ export interface DeviceStatus {
   ip: string;
   relays: LiveRelayState[];
   relayRaw: string;
+  modeRaw: string;
+  scheduleCount: number;
   receivedAt: string;
 }
 
@@ -375,7 +378,7 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
       if (json.success && json.data && json.data.length > 0) {
         const deviceStatuses: DeviceStatus[] = json.data;
 
-        // Update relay states from the first device's data
+        // Update relay states and modes from the first device's data
         const firstDevice = deviceStatuses[0];
         const updatedRelays = get().relays.map((relay) => {
           const liveRelay = firstDevice.relays.find((lr) => lr.id === relay.id);
@@ -383,6 +386,7 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
             return {
               ...relay,
               state: liveRelay.state,
+              mode: (liveRelay.mode || relay.mode) as 'manual' | 'auto' | 'disabled',
               lastUpdated: firstDevice.receivedAt || new Date().toISOString(),
               lastTriggeredBy: 'system' as const,
             };
