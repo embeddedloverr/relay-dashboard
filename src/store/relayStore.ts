@@ -183,6 +183,14 @@ interface RelayStore {
   fetchDeviceStatus: () => Promise<void>;
   fetchDeviceHealth: () => Promise<void>;
   fetchAllLiveData: () => Promise<void>;
+
+  // MQTT control actions
+  controlRelay: (mac: string, relayNum: number, state: 'on' | 'off' | 'toggle') => Promise<boolean>;
+  controlAllRelays: (mac: string, state: 'on' | 'off') => Promise<boolean>;
+  sendScheduleToDevice: (mac: string, schedules: Array<{ relay: number; on: string; off: string }>) => Promise<boolean>;
+
+  // Helper to get the current device MAC
+  getActiveMac: () => string | null;
 }
 
 export const useRelayStore = create<RelayStore>((set, get) => ({
@@ -381,5 +389,127 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
       get().fetchDeviceHealth(),
     ]);
     set({ isLoading: false });
+  },
+
+  // === MQTT Control Actions ===
+
+  getActiveMac: () => {
+    const statuses = get().deviceStatuses;
+    if (statuses.length > 0) return statuses[0].mac;
+    return null;
+  },
+
+  controlRelay: async (mac, relayNum, state) => {
+    try {
+      const res = await fetch('/api/device/control/relay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac, relay: relayNum, state }),
+      });
+      const json = await res.json();
+
+      if (json.success) {
+        // Optimistically update the relay state in the store
+        const relayId = `relay-${relayNum}`;
+        const newState = state === 'toggle'
+          ? (get().relays.find(r => r.id === relayId)?.state === 'ON' ? 'OFF' : 'ON')
+          : (state === 'on' ? 'ON' : 'OFF');
+
+        set((s) => ({
+          relays: s.relays.map((r) =>
+            r.id === relayId
+              ? { ...r, state: newState as 'ON' | 'OFF', lastUpdated: new Date().toISOString(), lastTriggeredBy: 'manual' as const }
+              : r
+          ),
+        }));
+
+        const relay = get().relays.find(r => r.id === relayId);
+        get().addLog({
+          id: `log-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          relayId,
+          relayName: relay?.name || `Relay ${relayNum}`,
+          action: newState as 'ON' | 'OFF',
+          triggeredBy: 'manual',
+          details: `MQTT command sent to ${mac}`,
+        });
+
+        // Refresh status after a short delay to get confirmed state
+        setTimeout(() => get().fetchDeviceStatus(), 2000);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('controlRelay error:', error);
+      return false;
+    }
+  },
+
+  controlAllRelays: async (mac, state) => {
+    try {
+      const res = await fetch('/api/device/control/allrelays', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac, state }),
+      });
+      const json = await res.json();
+
+      if (json.success) {
+        const newState = state === 'on' ? 'ON' : 'OFF';
+        set((s) => ({
+          relays: s.relays.map((r) => ({
+            ...r,
+            state: newState as 'ON' | 'OFF',
+            lastUpdated: new Date().toISOString(),
+            lastTriggeredBy: 'manual' as const,
+          })),
+        }));
+
+        get().addLog({
+          id: `log-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          relayId: 'all',
+          relayName: 'All Relays',
+          action: newState as 'ON' | 'OFF',
+          triggeredBy: 'manual',
+          details: `All relays ${newState} via MQTT to ${mac}`,
+        });
+
+        setTimeout(() => get().fetchDeviceStatus(), 2000);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('controlAllRelays error:', error);
+      return false;
+    }
+  },
+
+  sendScheduleToDevice: async (mac, schedules) => {
+    try {
+      const res = await fetch('/api/device/control/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac, schedules }),
+      });
+      const json = await res.json();
+
+      if (json.success) {
+        get().addLog({
+          id: `log-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          relayId: 'schedule',
+          relayName: 'Schedule',
+          action: 'ON',
+          triggeredBy: 'system',
+          details: `${schedules.length} schedule(s) sent to ${mac}`,
+        });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('sendScheduleToDevice error:', error);
+      return false;
+    }
   },
 }));

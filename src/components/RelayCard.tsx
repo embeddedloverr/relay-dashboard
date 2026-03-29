@@ -9,7 +9,8 @@ import {
   Cpu,
   ToggleLeft,
   ToggleRight,
-  Zap
+  Zap,
+  Loader2
 } from 'lucide-react';
 import { Relay } from '@/types';
 import { useRelayStore } from '@/store/relayStore';
@@ -22,15 +23,31 @@ interface RelayCardProps {
 
 export default function RelayCard({ relay, onEdit }: RelayCardProps) {
   const [showMenu, setShowMenu] = useState(false);
-  const { toggleRelay, setRelayState, setRelayMode, selectRelay, selectedRelayId } = useRelayStore();
+  const [isSending, setIsSending] = useState(false);
+  const { toggleRelay, setRelayState, setRelayMode, selectRelay, selectedRelayId, controlRelay, getActiveMac } = useRelayStore();
   
   const isSelected = selectedRelayId === relay.id;
   const isDisabled = relay.mode === 'disabled';
   const isOn = relay.state === 'ON';
 
+  // Extract relay number from id (e.g., "relay-1" -> 1)
+  const relayNum = parseInt(relay.id.split('-')[1], 10);
+
+  const handleMqttControl = async (state: 'on' | 'off' | 'toggle') => {
+    const mac = getActiveMac();
+    if (!mac || isSending) return;
+
+    setIsSending(true);
+    try {
+      await controlRelay(mac, relayNum, state);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const handleToggle = () => {
     if (!isDisabled) {
-      toggleRelay(relay.id);
+      handleMqttControl('toggle');
     }
   };
 
@@ -196,7 +213,7 @@ export default function RelayCard({ relay, onEdit }: RelayCardProps) {
         <div className="flex items-center justify-between text-xs text-industrial-400 mb-4">
           <div className="flex items-center gap-1.5">
             <Cpu size={12} />
-            <span className="font-mono">GPIO {relay.gpio}</span>
+            <span className="font-mono">CH {relayNum}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Clock size={12} />
@@ -209,35 +226,35 @@ export default function RelayCard({ relay, onEdit }: RelayCardProps) {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setRelayState(relay.id, 'ON');
+              handleMqttControl('on');
             }}
-            disabled={isDisabled || isOn}
+            disabled={isDisabled || isOn || isSending}
             className={cn(
               'btn flex-1 text-sm py-2',
               isOn 
                 ? 'bg-relay-on/20 text-relay-on border-relay-on/50' 
                 : 'btn-success',
-              isDisabled && 'opacity-50 cursor-not-allowed'
+              (isDisabled || isSending) && 'opacity-50 cursor-not-allowed'
             )}
           >
-            <Power size={16} />
+            {isSending ? <Loader2 size={16} className="animate-spin" /> : <Power size={16} />}
             ON
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setRelayState(relay.id, 'OFF');
+              handleMqttControl('off');
             }}
-            disabled={isDisabled || !isOn}
+            disabled={isDisabled || !isOn || isSending}
             className={cn(
               'btn flex-1 text-sm py-2',
               !isOn 
                 ? 'bg-relay-off/20 text-relay-off border-relay-off/50' 
                 : 'btn-danger',
-              isDisabled && 'opacity-50 cursor-not-allowed'
+              (isDisabled || isSending) && 'opacity-50 cursor-not-allowed'
             )}
           >
-            <Power size={16} />
+            {isSending ? <Loader2 size={16} className="animate-spin" /> : <Power size={16} />}
             OFF
           </button>
         </div>

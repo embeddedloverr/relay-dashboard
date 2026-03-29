@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { 
   Power, 
   Calendar, 
@@ -10,7 +10,8 @@ import {
   Clock,
   AlertTriangle,
   Wifi,
-  WifiOff
+  WifiOff,
+  Loader2
 } from 'lucide-react';
 import { useRelayStore } from '@/store/relayStore';
 import StatsCard from './StatsCard';
@@ -24,9 +25,11 @@ export default function DashboardOverview() {
   const { 
     relays, schedules, activityLogs, getStats, groups,
     deviceStatuses, deviceHealths,
-    fetchAllLiveData, lastFetched, fetchError
+    fetchAllLiveData, lastFetched, fetchError,
+    controlAllRelays, getActiveMac
   } = useRelayStore();
   const stats = getStats();
+  const [allSending, setAllSending] = useState<'on' | 'off' | null>(null);
 
   // Fetch live data on mount and poll every 10s
   useEffect(() => {
@@ -91,7 +94,7 @@ export default function DashboardOverview() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Relay States from Live Data */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
               <Power size={20} className="text-accent-cyan" />
               Relay Status
@@ -101,11 +104,52 @@ export default function DashboardOverview() {
                 </span>
               )}
             </h2>
-            {lastFetched && (
-              <span className="text-xs text-industrial-500">
-                Updated: {formatTimeAgo(lastFetched)}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {/* All ON / All OFF */}
+              {getActiveMac() && (
+                <>
+                  <button
+                    onClick={async () => {
+                      const mac = getActiveMac();
+                      if (!mac) return;
+                      setAllSending('on');
+                      await controlAllRelays(mac, 'on');
+                      setAllSending(null);
+                    }}
+                    disabled={allSending !== null}
+                    className={cn(
+                      'btn text-xs px-3 py-1.5 btn-success',
+                      allSending !== null && 'opacity-50 cursor-not-allowed'
+                    )}
+                  >
+                    {allSending === 'on' ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                    All ON
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const mac = getActiveMac();
+                      if (!mac) return;
+                      setAllSending('off');
+                      await controlAllRelays(mac, 'off');
+                      setAllSending(null);
+                    }}
+                    disabled={allSending !== null}
+                    className={cn(
+                      'btn text-xs px-3 py-1.5 btn-danger',
+                      allSending !== null && 'opacity-50 cursor-not-allowed'
+                    )}
+                  >
+                    {allSending === 'off' ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} />}
+                    All OFF
+                  </button>
+                </>
+              )}
+              {lastFetched && (
+                <span className="text-xs text-industrial-500">
+                  {formatTimeAgo(lastFetched)}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Device info bar */}
