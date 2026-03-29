@@ -162,7 +162,7 @@ interface RelayStore {
   setSchedules: (schedules: Schedule[]) => void;
   addSchedule: (schedule: Schedule) => void;
   updateSchedule: (id: string, updates: Partial<Schedule>) => void;
-  deleteSchedule: (id: string) => void;
+  deleteSchedule: (id: string) => Promise<void>;
   toggleScheduleEnabled: (id: string) => void;
 
   // Log Actions
@@ -188,6 +188,8 @@ interface RelayStore {
   controlRelay: (mac: string, relayNum: number, state: 'on' | 'off' | 'toggle') => Promise<boolean>;
   controlAllRelays: (mac: string, state: 'on' | 'off') => Promise<boolean>;
   sendScheduleToDevice: (mac: string, schedules: Array<{ relay: number; on: string; off: string }>) => Promise<boolean>;
+  controlMode: (mac: string, mode: 'auto' | 'manual') => Promise<boolean>;
+  clearSchedule: (mac: string) => Promise<boolean>;
 
   // Helper to get the current device MAC
   getActiveMac: () => string | null;
@@ -263,11 +265,21 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
     }
   },
 
-  setRelayMode: (id, mode) => set((state) => ({
-    relays: state.relays.map((relay) =>
-      relay.id === id ? { ...relay, mode, lastUpdated: new Date().toISOString() } : relay
-    ),
-  })),
+  setRelayMode: async (id, mode) => {
+    set((state) => ({
+      relays: state.relays.map((relay) =>
+        relay.id === id ? { ...relay, mode, lastUpdated: new Date().toISOString() } : relay
+      ),
+    }));
+    
+    // Automatically send mode command to device if it's auto or manual
+    if (mode === 'auto' || mode === 'manual') {
+      const mac = get().getActiveMac();
+      if (mac) {
+        await get().controlMode(mac, mode);
+      }
+    }
+  },
 
   // Schedule Actions
   setSchedules: (schedules) => set({ schedules }),
@@ -282,9 +294,34 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
     ),
   })),
 
-  deleteSchedule: (id) => set((state) => ({
-    schedules: state.schedules.filter((schedule) => schedule.id !== id),
-  })),
+  deleteSchedule: async (id) => {
+    const remaining = get().schedules.filter((schedule) => schedule.id !== id);
+    set({ schedules: remaining });
+
+    const mac = get().getActiveMac();
+    if (!mac) return;
+
+    if (remaining.length === 0) {
+      // If no schedules left, clear schedules on the device entirely
+      await get().clearSchedule(mac);
+    } else {
+      // Re-send the remaining schedules to keep device in sync
+      const payload = remaining.map(sch => {
+        const relayNum = parseInt(sch.relayId.split('-')[1], 10) || 1;
+        const onTime = sch.time || '08:00';
+        let offTime = '20:00';
+        if (sch.time && sch.durationMinutes) {
+          const [h, m] = sch.time.split(':').map(Number);
+          const totalMinutes = h * 60 + m + sch.durationMinutes;
+          const offH = Math.floor(totalMinutes / 60) % 24;
+          const offM = totalMinutes % 60;
+          offTime = `${String(offH).padStart(2, '0')}:${String(offM).padStart(2, '0')}`;
+        }
+        return { relay: relayNum, on: onTime, off: offTime };
+      });
+      await get().sendScheduleToDevice(mac, payload);
+    }
+  },
 
   toggleScheduleEnabled: (id) => set((state) => ({
     schedules: state.schedules.map((schedule) =>
@@ -509,6 +546,62 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
       return false;
     } catch (error) {
       console.error('sendScheduleToDevice error:', error);
+      return false;
+    }
+  },
+
+  controlMode: async (mac, mode) => {
+    try {
+      const res = await fetch('/api/device/control/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac, mode }),
+      });
+      const json = await res.json();
+
+      if (json.success) {
+        get().addLog({
+          id: `log-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          relayId: 'all',
+          relayName: 'All Relays',
+          action: mode === 'auto' ? 'ON' : 'OFF',
+          triggeredBy: 'manual',
+          details: `Device mode set to ${mode} via MQTT`,
+        });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('controlMode error:', error);
+      return false;
+    }
+  },
+
+  clearSchedule: async (mac) => {
+    try {
+      const res = await fetch('/api/device/control/clearschedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac }),
+      });
+      const json = await res.json();
+
+      if (json.success) {
+        get().addLog({
+          id: `log-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          relayId: 'schedule',
+          relayName: 'Schedule',
+          action: 'OFF',
+          triggeredBy: 'manual',
+          details: `All schedules cleared on device ${mac}`,
+        });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('clearSchedule error:', error);
       return false;
     }
   },
