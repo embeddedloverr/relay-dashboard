@@ -1,0 +1,385 @@
+import { create } from 'zustand';
+import { Relay, Schedule, ActivityLog, DashboardStats, RelayGroup } from '@/types';
+
+// === Device types for live MongoDB data ===
+export interface LiveRelayState {
+  id: string;
+  name: string;
+  description: string;
+  state: 'ON' | 'OFF';
+  position: number;
+}
+
+export interface DeviceStatus {
+  deviceId: string;
+  mac: string;
+  timestamp: string;
+  rssi: number;
+  ip: string;
+  relays: LiveRelayState[];
+  relayRaw: string;
+  receivedAt: string;
+}
+
+export interface DeviceHealth {
+  deviceId: string;
+  mac: string;
+  timestamp: string;
+  rssi: number;
+  rssiQuality?: string;
+  heap: number;
+  heapFormatted?: string;
+  uptime: number;
+  uptimeFormatted: string;
+  receivedAt: string;
+  isOnline: boolean;
+  lastSeenAgo: number;
+}
+
+// Default relay info (used when no live data is available)
+const defaultRelays: Relay[] = [
+  {
+    id: 'relay-1',
+    name: 'Relay 1',
+    description: 'Relay Channel 1',
+    state: 'OFF',
+    mode: 'manual',
+    gpio: 1,
+    lastUpdated: new Date().toISOString(),
+    lastTriggeredBy: 'system',
+  },
+  {
+    id: 'relay-2',
+    name: 'Relay 2',
+    description: 'Relay Channel 2',
+    state: 'OFF',
+    mode: 'manual',
+    gpio: 2,
+    lastUpdated: new Date().toISOString(),
+    lastTriggeredBy: 'system',
+  },
+  {
+    id: 'relay-3',
+    name: 'Relay 3',
+    description: 'Relay Channel 3',
+    state: 'OFF',
+    mode: 'manual',
+    gpio: 3,
+    lastUpdated: new Date().toISOString(),
+    lastTriggeredBy: 'system',
+  },
+  {
+    id: 'relay-4',
+    name: 'Relay 4',
+    description: 'Relay Channel 4',
+    state: 'OFF',
+    mode: 'manual',
+    gpio: 4,
+    lastUpdated: new Date().toISOString(),
+    lastTriggeredBy: 'system',
+  },
+  {
+    id: 'relay-5',
+    name: 'Relay 5',
+    description: 'Relay Channel 5',
+    state: 'OFF',
+    mode: 'manual',
+    gpio: 5,
+    lastUpdated: new Date().toISOString(),
+    lastTriggeredBy: 'system',
+  },
+  {
+    id: 'relay-6',
+    name: 'Relay 6',
+    description: 'Relay Channel 6',
+    state: 'OFF',
+    mode: 'manual',
+    gpio: 6,
+    lastUpdated: new Date().toISOString(),
+    lastTriggeredBy: 'system',
+  },
+];
+
+const initialSchedules: Schedule[] = [
+  {
+    id: 'sch-001',
+    name: 'Morning Pump Cycle',
+    relayId: 'relay-1',
+    enabled: true,
+    action: 'ON',
+    scheduleType: 'daily',
+    time: '06:00',
+    durationMinutes: 120,
+    lastRun: new Date(Date.now() - 86400000).toISOString(),
+    nextRun: new Date(Date.now() + 3600000).toISOString(),
+    createdAt: new Date(Date.now() - 604800000).toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'sch-002',
+    name: 'Evening Pump Cycle',
+    relayId: 'relay-1',
+    enabled: true,
+    action: 'ON',
+    scheduleType: 'daily',
+    time: '18:00',
+    durationMinutes: 90,
+    lastRun: new Date(Date.now() - 43200000).toISOString(),
+    nextRun: new Date(Date.now() + 7200000).toISOString(),
+    createdAt: new Date(Date.now() - 604800000).toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+];
+
+const initialLogs: ActivityLog[] = [];
+
+const initialGroups: RelayGroup[] = [];
+
+interface RelayStore {
+  // State
+  relays: Relay[];
+  schedules: Schedule[];
+  activityLogs: ActivityLog[];
+  groups: RelayGroup[];
+  selectedRelayId: string | null;
+  selectedScheduleId: string | null;
+  isLoading: boolean;
+
+  // Live device data
+  deviceStatuses: DeviceStatus[];
+  deviceHealths: DeviceHealth[];
+  lastFetched: string | null;
+  fetchError: string | null;
+
+  // Relay Actions
+  setRelays: (relays: Relay[]) => void;
+  updateRelay: (id: string, updates: Partial<Relay>) => void;
+  toggleRelay: (id: string) => void;
+  setRelayState: (id: string, state: 'ON' | 'OFF') => void;
+  setRelayMode: (id: string, mode: 'manual' | 'auto' | 'disabled') => void;
+
+  // Schedule Actions
+  setSchedules: (schedules: Schedule[]) => void;
+  addSchedule: (schedule: Schedule) => void;
+  updateSchedule: (id: string, updates: Partial<Schedule>) => void;
+  deleteSchedule: (id: string) => void;
+  toggleScheduleEnabled: (id: string) => void;
+
+  // Log Actions
+  addLog: (log: ActivityLog) => void;
+  clearLogs: () => void;
+
+  // Selection
+  selectRelay: (id: string | null) => void;
+  selectSchedule: (id: string | null) => void;
+
+  // UI
+  setLoading: (loading: boolean) => void;
+
+  // Stats
+  getStats: () => DashboardStats;
+
+  // Live data actions
+  fetchDeviceStatus: () => Promise<void>;
+  fetchDeviceHealth: () => Promise<void>;
+  fetchAllLiveData: () => Promise<void>;
+}
+
+export const useRelayStore = create<RelayStore>((set, get) => ({
+  // Initial State
+  relays: defaultRelays,
+  schedules: initialSchedules,
+  activityLogs: initialLogs,
+  groups: initialGroups,
+  selectedRelayId: null,
+  selectedScheduleId: null,
+  isLoading: false,
+
+  // Live device data
+  deviceStatuses: [],
+  deviceHealths: [],
+  lastFetched: null,
+  fetchError: null,
+
+  // Relay Actions
+  setRelays: (relays) => set({ relays }),
+
+  updateRelay: (id, updates) => set((state) => ({
+    relays: state.relays.map((relay) =>
+      relay.id === id ? { ...relay, ...updates, lastUpdated: new Date().toISOString() } : relay
+    ),
+  })),
+
+  toggleRelay: (id) => {
+    const relay = get().relays.find((r) => r.id === id);
+    if (relay && relay.mode !== 'disabled') {
+      const newState = relay.state === 'ON' ? 'OFF' : 'ON';
+      set((state) => ({
+        relays: state.relays.map((r) =>
+          r.id === id
+            ? { ...r, state: newState, lastUpdated: new Date().toISOString(), lastTriggeredBy: 'manual' }
+            : r
+        ),
+      }));
+      get().addLog({
+        id: `log-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        relayId: id,
+        relayName: relay.name,
+        action: newState,
+        triggeredBy: 'manual',
+        details: 'Manual toggle via dashboard',
+      });
+    }
+  },
+
+  setRelayState: (id, state) => {
+    const relay = get().relays.find((r) => r.id === id);
+    if (relay && relay.mode !== 'disabled') {
+      set((s) => ({
+        relays: s.relays.map((r) =>
+          r.id === id
+            ? { ...r, state, lastUpdated: new Date().toISOString(), lastTriggeredBy: 'manual' }
+            : r
+        ),
+      }));
+      get().addLog({
+        id: `log-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        relayId: id,
+        relayName: relay.name,
+        action: state,
+        triggeredBy: 'manual',
+        details: `Set to ${state} via dashboard`,
+      });
+    }
+  },
+
+  setRelayMode: (id, mode) => set((state) => ({
+    relays: state.relays.map((relay) =>
+      relay.id === id ? { ...relay, mode, lastUpdated: new Date().toISOString() } : relay
+    ),
+  })),
+
+  // Schedule Actions
+  setSchedules: (schedules) => set({ schedules }),
+
+  addSchedule: (schedule) => set((state) => ({
+    schedules: [...state.schedules, schedule],
+  })),
+
+  updateSchedule: (id, updates) => set((state) => ({
+    schedules: state.schedules.map((schedule) =>
+      schedule.id === id ? { ...schedule, ...updates, updatedAt: new Date().toISOString() } : schedule
+    ),
+  })),
+
+  deleteSchedule: (id) => set((state) => ({
+    schedules: state.schedules.filter((schedule) => schedule.id !== id),
+  })),
+
+  toggleScheduleEnabled: (id) => set((state) => ({
+    schedules: state.schedules.map((schedule) =>
+      schedule.id === id
+        ? { ...schedule, enabled: !schedule.enabled, updatedAt: new Date().toISOString() }
+        : schedule
+    ),
+  })),
+
+  // Log Actions
+  addLog: (log) => set((state) => ({
+    activityLogs: [log, ...state.activityLogs].slice(0, 100),
+  })),
+
+  clearLogs: () => set({ activityLogs: [] }),
+
+  // Selection
+  selectRelay: (id) => set({ selectedRelayId: id }),
+  selectSchedule: (id) => set({ selectedScheduleId: id }),
+
+  // UI
+  setLoading: (loading) => set({ isLoading: loading }),
+
+  // Stats
+  getStats: () => {
+    const state = get();
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    return {
+      totalRelays: state.relays.length,
+      relaysOn: state.relays.filter((r) => r.state === 'ON').length,
+      relaysOff: state.relays.filter((r) => r.state === 'OFF').length,
+      activeSchedules: state.schedules.filter((s) => s.enabled).length,
+      todayActivations: state.activityLogs.filter(
+        (log) => new Date(log.timestamp) >= todayStart
+      ).length,
+      uptime: state.deviceHealths.length > 0
+        ? state.deviceHealths[0].uptimeFormatted
+        : 'N/A',
+    };
+  },
+
+  // === Live data fetch actions ===
+  fetchDeviceStatus: async () => {
+    try {
+      const res = await fetch('/api/device/status');
+      const json = await res.json();
+
+      if (json.success && json.data && json.data.length > 0) {
+        const deviceStatuses: DeviceStatus[] = json.data;
+
+        // Update relay states from the first device's data
+        const firstDevice = deviceStatuses[0];
+        const updatedRelays = get().relays.map((relay) => {
+          const liveRelay = firstDevice.relays.find((lr) => lr.id === relay.id);
+          if (liveRelay) {
+            return {
+              ...relay,
+              state: liveRelay.state,
+              lastUpdated: firstDevice.receivedAt || new Date().toISOString(),
+              lastTriggeredBy: 'system' as const,
+            };
+          }
+          return relay;
+        });
+
+        set({
+          deviceStatuses,
+          relays: updatedRelays,
+          lastFetched: new Date().toISOString(),
+          fetchError: null,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch device status:', error);
+      set({ fetchError: error instanceof Error ? error.message : 'Failed to fetch status' });
+    }
+  },
+
+  fetchDeviceHealth: async () => {
+    try {
+      const res = await fetch('/api/device/health');
+      const json = await res.json();
+
+      if (json.success && json.data) {
+        set({
+          deviceHealths: json.data,
+          fetchError: null,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch device health:', error);
+      set({ fetchError: error instanceof Error ? error.message : 'Failed to fetch health' });
+    }
+  },
+
+  fetchAllLiveData: async () => {
+    set({ isLoading: true });
+    await Promise.all([
+      get().fetchDeviceStatus(),
+      get().fetchDeviceHealth(),
+    ]);
+    set({ isLoading: false });
+  },
+}));

@@ -1,0 +1,244 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Orbitron:wght@400..900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --industrial-900: #0a0f14;
+  --industrial-800: #131b24;
+  --industrial-700: #1c2833;
+  --industrial-600: #263545;
+  --industrial-500: #3a4d5e;
+  --industrial-400: #5a7289;
+  --industrial-300: #8aa3b8;
+  --relay-on: #00ff88;
+  --relay-off: #ff3366;
+  --accent-cyan: #00d4ff;
+  --accent-orange: #ff6b35;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: linear-gradient(135deg, var(--industrial-900) 0%, var(--industrial-800) 50%, var(--industrial-900) 100%);
+  min-height: 100vh;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: var(--industrial-100);
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--industrial-800);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--industrial-500);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--industrial-400);
+}
+
+/* Glow Effects */
+.glow-on {
+  box-shadow: 0 0 10px var(--relay-on), 0 0 20px var(--relay-on), 0 0 30px var(--relay-on);
+}
+
+.glow-off {
+  box-shadow: 0 0 10px var(--relay-off), 0 0 20px var(--relay-off);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 10px var(--accent-cyan), 0 0 20px var(--accent-cyan);
+}
+
+/* Card Styles */
+.card {
+  @apply bg-industrial-800/80 backdrop-blur-sm border border-industrial-600/50 rounded-xl;
+}
+
+.card-hover {
+  @apply transition-all duration-300 hover:border-accent-cyan/50 hover:shadow-lg hover:shadow-accent-cyan/10;
+}
+
+/* Button Base */
+.btn {
+  @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 justify-center;
+}
+
+.btn-primary {
+  @apply bg-accent-cyan/20 border border-accent-cyan/50 text-accent-cyan hover:bg-accent-cyan/30 hover:border-accent-cyan;
+}
+
+.btn-success {
+  @apply bg-relay-on/20 border border-relay-on/50 text-relay-on hover:bg-relay-on/30 hover:border-relay-on;
+}
+
+.btn-danger {
+  @apply bg-relay-off/20 border border-relay-off/50 text-relay-off hover:bg-relay-off/30 hover:border-relay-off;
+}
+
+.btn-ghost {
+  @apply bg-industrial-700/50 border border-industrial-600 text-industrial-200 hover:bg-industrial-600 hover:text-white;
+}
+
+/* Input Styles */
+.input {
+  @apply w-full bg-industrial-700/50 border border-industrial-600 rounded-lg px-4 py-2.5 text-white placeholder-industrial-400 focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/30 transition-all duration-200;
+}
+
+.input-label {
+  @apply block text-sm font-medium text-industrial-300 mb-1.5;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+  @apply relative inline-flex h-7 w-14 cursor-pointer items-center rounded-full transition-colors duration-300;
+}
+
+.toggle-switch-thumb {
+  @apply absolute h-5 w-5 rounded-full bg-white shadow-lg transition-transform duration-300;
+}
+
+/* Relay Card Animation */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.relay-active {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Grid Pattern Background */
+.grid-pattern {
+  background-image: 
+    linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Status Indicator */
+.status-dot {
+  @apply w-3 h-3 rounded-full;
+}
+
+.status-dot-on {
+  @apply bg-relay-on shadow-neon-green;
+}
+
+.status-dot-off {
+  @apply bg-relay-off shadow-neon-red;
+}
+
+/* Tab Styles */
+.tab {
+  @apply px-4 py-2 text-industrial-400 border-b-2 border-transparent transition-all duration-200 cursor-pointer hover:text-white;
+}
+
+.tab-active {
+  @apply text-accent-cyan border-accent-cyan;
+}
+
+/* Modal Overlay */
+.modal-overlay {
+  @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4;
+}
+
+.modal-content {
+  @apply bg-industrial-800 border border-industrial-600 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-auto;
+}
+
+/* Tooltip */
+.tooltip {
+  @apply absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-industrial-700 border border-industrial-600 rounded-lg text-sm text-white whitespace-nowrap opacity-0 invisible transition-all duration-200 z-50;
+}
+
+.tooltip-trigger:hover .tooltip {
+  @apply opacity-100 visible;
+}
+
+/* Data Table */
+.data-table {
+  @apply w-full text-left;
+}
+
+.data-table th {
+  @apply px-4 py-3 text-xs uppercase tracking-wider text-industrial-400 font-medium border-b border-industrial-600;
+}
+
+.data-table td {
+  @apply px-4 py-3 border-b border-industrial-700/50;
+}
+
+.data-table tr:hover td {
+  @apply bg-industrial-700/30;
+}
+
+/* Badge */
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+}
+
+.badge-on {
+  @apply bg-relay-on/20 text-relay-on border border-relay-on/30;
+}
+
+.badge-off {
+  @apply bg-relay-off/20 text-relay-off border border-relay-off/30;
+}
+
+.badge-auto {
+  @apply bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30;
+}
+
+.badge-manual {
+  @apply bg-accent-orange/20 text-accent-orange border border-accent-orange/30;
+}
+
+.badge-disabled {
+  @apply bg-industrial-600/50 text-industrial-400 border border-industrial-500/30;
+}
+
+/* Progress Bar */
+.progress-bar {
+  @apply h-2 bg-industrial-700 rounded-full overflow-hidden;
+}
+
+.progress-bar-fill {
+  @apply h-full bg-gradient-to-r from-accent-cyan to-relay-on rounded-full transition-all duration-500;
+}
+
+/* Skeleton Loading */
+.skeleton {
+  @apply bg-industrial-700 rounded animate-pulse;
+}
+
+/* Selection Highlight */
+.selected {
+  @apply ring-2 ring-accent-cyan ring-offset-2 ring-offset-industrial-800;
+}
+
+/* Responsive Container */
+.container-main {
+  @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+}
