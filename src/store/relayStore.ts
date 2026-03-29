@@ -188,7 +188,7 @@ interface RelayStore {
   controlRelay: (mac: string, relayNum: number, state: 'on' | 'off' | 'toggle') => Promise<boolean>;
   controlAllRelays: (mac: string, state: 'on' | 'off') => Promise<boolean>;
   sendScheduleToDevice: (mac: string, schedules: Array<{ relay: number; on: string; off: string }>) => Promise<boolean>;
-  controlMode: (mac: string, mode: 'auto' | 'manual') => Promise<boolean>;
+  controlMode: (mac: string, relayNum: number, mode: 'auto' | 'manual') => Promise<boolean>;
   clearSchedule: (mac: string) => Promise<boolean>;
 
   // Helper to get the current device MAC
@@ -275,8 +275,9 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
     // Automatically send mode command to device if it's auto or manual
     if (mode === 'auto' || mode === 'manual') {
       const mac = get().getActiveMac();
+      const relayNum = parseInt(id.split('-')[1], 10) || 1;
       if (mac) {
-        await get().controlMode(mac, mode);
+        await get().controlMode(mac, relayNum, mode);
       }
     }
   },
@@ -550,12 +551,12 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
     }
   },
 
-  controlMode: async (mac, mode) => {
+  controlMode: async (mac, relayNum, mode) => {
     try {
       const res = await fetch('/api/device/control/mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mac, mode }),
+        body: JSON.stringify({ mac, relay: relayNum, mode }),
       });
       const json = await res.json();
 
@@ -563,11 +564,11 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
         get().addLog({
           id: `log-${Date.now()}`,
           timestamp: new Date().toISOString(),
-          relayId: 'all',
-          relayName: 'All Relays',
+          relayId: `relay-${relayNum}`,
+          relayName: `Relay ${relayNum}`,
           action: mode === 'auto' ? 'ON' : 'OFF',
           triggeredBy: 'manual',
-          details: `Device mode set to ${mode} via MQTT`,
+          details: `Relay ${relayNum} mode set to ${mode} via MQTT`,
         });
         return true;
       }

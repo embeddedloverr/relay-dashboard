@@ -6,19 +6,26 @@ import { publishMqtt } from '@/lib/mqttClient';
  * 
  * Change a device's operating mode via MQTT.
  * Publishes to: sdwell/{MAC}/cmd/mode
- * Payload:      {"mode": "auto"} or {"mode": "manual"}
+ * Payload:      {"relay":1, "mode":"auto"|"manual"} (relay 0 = apply to ALL)
  * 
  * Request body:
- *   { mac: string, mode: "auto" | "manual" }
+ *   { mac: string, relay: number, mode: "auto" | "manual" }
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mac, mode } = body;
+    const { mac, relay, mode } = body;
 
     if (!mac) {
       return NextResponse.json(
         { success: false, error: 'mac is required (device MAC address)' },
+        { status: 400 }
+      );
+    }
+
+    if (relay === undefined || typeof relay !== 'number' || relay < 0 || relay > 6) {
+      return NextResponse.json(
+        { success: false, error: 'relay must be a number between 0 and 6 (0 = all relays)' },
         { status: 400 }
       );
     }
@@ -31,7 +38,7 @@ export async function POST(request: NextRequest) {
     }
 
     const topic = `sdwell/${mac}/cmd/mode`;
-    const payload = { mode: mode.toLowerCase() };
+    const payload = { relay, mode: mode.toLowerCase() };
 
     const published = await publishMqtt(topic, payload);
 
@@ -44,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Mode → ${mode} command sent to ${mac}`,
+      message: `Relay ${relay} Mode → ${mode} command sent to ${mac}`,
       data: { mac, topic, payload, timestamp: new Date().toISOString() },
     });
   } catch (error) {
