@@ -110,36 +110,7 @@ const defaultRelays: Relay[] = [
   },
 ];
 
-const initialSchedules: Schedule[] = [
-  {
-    id: 'sch-001',
-    name: 'Morning Pump Cycle',
-    relayId: 'relay-1',
-    enabled: true,
-    action: 'ON',
-    scheduleType: 'daily',
-    time: '06:00',
-    durationMinutes: 120,
-    lastRun: new Date(Date.now() - 86400000).toISOString(),
-    nextRun: new Date(Date.now() + 3600000).toISOString(),
-    createdAt: new Date(Date.now() - 604800000).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'sch-002',
-    name: 'Evening Pump Cycle',
-    relayId: 'relay-1',
-    enabled: true,
-    action: 'ON',
-    scheduleType: 'daily',
-    time: '18:00',
-    durationMinutes: 90,
-    lastRun: new Date(Date.now() - 43200000).toISOString(),
-    nextRun: new Date(Date.now() + 7200000).toISOString(),
-    createdAt: new Date(Date.now() - 604800000).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
+const initialSchedules: Schedule[] = [];
 
 const initialLogs: ActivityLog[] = [];
 
@@ -174,11 +145,12 @@ interface RelayStore {
   setRelayMode: (id: string, mode: 'manual' | 'auto' | 'disabled') => void;
 
   // Schedule Actions
+  fetchSchedules: () => Promise<void>;
   setSchedules: (schedules: Schedule[]) => void;
-  addSchedule: (schedule: Schedule) => void;
-  updateSchedule: (id: string, updates: Partial<Schedule>) => void;
+  addSchedule: (schedule: Schedule) => Promise<void>;
+  updateSchedule: (id: string, updates: Partial<Schedule>) => Promise<void>;
   deleteSchedule: (id: string) => Promise<void>;
-  toggleScheduleEnabled: (id: string) => void;
+  toggleScheduleEnabled: (id: string) => Promise<void>;
 
   // Log Actions
   addLog: (log: ActivityLog) => void;
@@ -301,19 +273,47 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
   // Schedule Actions
   setSchedules: (schedules) => set({ schedules }),
 
-  addSchedule: (schedule) => set((state) => ({
-    schedules: [...state.schedules, schedule],
-  })),
+  addSchedule: async (schedule) => {
+    set((state) => ({
+      schedules: [...state.schedules, schedule],
+    }));
+    try {
+      await fetch('/api/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(schedule),
+      });
+    } catch (error) {
+      console.error('Failed to save schedule:', error);
+    }
+  },
 
-  updateSchedule: (id, updates) => set((state) => ({
-    schedules: state.schedules.map((schedule) =>
-      schedule.id === id ? { ...schedule, ...updates, updatedAt: new Date().toISOString() } : schedule
-    ),
-  })),
+  updateSchedule: async (id, updates) => {
+    set((state) => ({
+      schedules: state.schedules.map((schedule) =>
+        schedule.id === id ? { ...schedule, ...updates, updatedAt: new Date().toISOString() } : schedule
+      ),
+    }));
+    try {
+      await fetch('/api/schedules', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...updates }),
+      });
+    } catch (error) {
+      console.error('Failed to update schedule:', error);
+    }
+  },
 
   deleteSchedule: async (id) => {
     const remaining = get().schedules.filter((schedule) => schedule.id !== id);
     set({ schedules: remaining });
+
+    try {
+      await fetch(`/api/schedules?id=${id}`, { method: 'DELETE' });
+    } catch (error) {
+      console.error('Failed to delete schedule:', error);
+    }
 
     const mac = get().getActiveMac();
     if (!mac) return;
@@ -340,13 +340,27 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
     }
   },
 
-  toggleScheduleEnabled: (id) => set((state) => ({
-    schedules: state.schedules.map((schedule) =>
-      schedule.id === id
-        ? { ...schedule, enabled: !schedule.enabled, updatedAt: new Date().toISOString() }
-        : schedule
-    ),
-  })),
+  toggleScheduleEnabled: async (id) => {
+    let newEnabledState = false;
+    set((state) => ({
+      schedules: state.schedules.map((schedule) => {
+        if (schedule.id === id) {
+          newEnabledState = !schedule.enabled;
+          return { ...schedule, enabled: newEnabledState, updatedAt: new Date().toISOString() };
+        }
+        return schedule;
+      }),
+    }));
+    try {
+      await fetch('/api/schedules', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, enabled: newEnabledState }),
+      });
+    } catch (error) {
+      console.error('Failed to toggle schedule:', error);
+    }
+  },
 
   // Log Actions
   addLog: (log) => set((state) => ({
@@ -443,8 +457,21 @@ export const useRelayStore = create<RelayStore>((set, get) => ({
       get().fetchDeviceStatus(),
       get().fetchDeviceHealth(),
       get().fetchAliases(),
+      get().fetchSchedules(),
     ]);
     set({ isLoading: false });
+  },
+
+  fetchSchedules: async () => {
+    try {
+      const res = await fetch('/api/schedules');
+      const json = await res.json();
+      if (json.success && json.data) {
+        set({ schedules: json.data });
+      }
+    } catch (error) {
+      console.error('Failed to fetch schedules:', error);
+    }
   },
 
   // === Alias Actions ===

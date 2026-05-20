@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getSchedulesCollection } from '@/lib/mongodb';
 
-interface Schedule {
+export interface Schedule {
   id: string;
   name: string;
   relayId: string;
@@ -17,65 +18,6 @@ interface Schedule {
   createdAt: string;
   updatedAt: string;
 }
-
-// In-memory storage (replace with database in production)
-let schedules: Schedule[] = [
-  {
-    id: 'sch-001',
-    name: 'Morning Pump Cycle',
-    relayId: 'relay-001',
-    enabled: true,
-    action: 'ON',
-    scheduleType: 'daily',
-    time: '06:00',
-    durationMinutes: 30,
-    lastRun: new Date(Date.now() - 86400000).toISOString(),
-    nextRun: new Date(Date.now() + 3600000).toISOString(),
-    createdAt: new Date(Date.now() - 604800000).toISOString(),
-    updatedAt: new Date(Date.now() - 604800000).toISOString(),
-  },
-  {
-    id: 'sch-002',
-    name: 'Evening Pump Cycle',
-    relayId: 'relay-001',
-    enabled: true,
-    action: 'ON',
-    scheduleType: 'daily',
-    time: '18:00',
-    durationMinutes: 45,
-    lastRun: new Date(Date.now() - 43200000).toISOString(),
-    nextRun: new Date(Date.now() + 21600000).toISOString(),
-    createdAt: new Date(Date.now() - 604800000).toISOString(),
-    updatedAt: new Date(Date.now() - 604800000).toISOString(),
-  },
-  {
-    id: 'sch-003',
-    name: 'Weekend Maintenance',
-    relayId: 'relay-006',
-    enabled: false,
-    action: 'ON',
-    scheduleType: 'weekly',
-    time: '10:00',
-    days: ['SAT'],
-    durationMinutes: 60,
-    createdAt: new Date(Date.now() - 1209600000).toISOString(),
-    updatedAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-  {
-    id: 'sch-004',
-    name: 'UV Sterilizer Cycle',
-    relayId: 'relay-008',
-    enabled: true,
-    action: 'ON',
-    scheduleType: 'interval',
-    intervalMinutes: 120,
-    durationMinutes: 15,
-    lastRun: new Date(Date.now() - 7200000).toISOString(),
-    nextRun: new Date(Date.now() + 300000).toISOString(),
-    createdAt: new Date(Date.now() - 2592000000).toISOString(),
-    updatedAt: new Date(Date.now() - 2592000000).toISOString(),
-  },
-];
 
 // Calculate next run time based on schedule type
 function calculateNextRun(schedule: Schedule): string | undefined {
@@ -140,27 +82,40 @@ function calculateNextRun(schedule: Schedule): string | undefined {
 
 // GET - Fetch all schedules
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const relayId = searchParams.get('relayId');
-  const enabled = searchParams.get('enabled');
+  try {
+    const { searchParams } = new URL(request.url);
+    const relayId = searchParams.get('relayId');
+    const enabled = searchParams.get('enabled');
 
-  let filteredSchedules = schedules;
+    const collection = await getSchedulesCollection();
+    let query: any = {};
+    
+    if (relayId) {
+      query.relayId = relayId;
+    }
 
-  if (relayId) {
-    filteredSchedules = filteredSchedules.filter(s => s.relayId === relayId);
+    if (enabled !== null) {
+      query.enabled = enabled === 'true';
+    }
+
+    const schedules = await collection.find(query).toArray();
+    
+    // Convert _id to string or map it back
+    const formattedSchedules = schedules.map((s: any) => ({
+      ...s,
+      _id: s._id.toString()
+    }));
+
+    return NextResponse.json({
+      success: true,
+      data: formattedSchedules,
+      count: formattedSchedules.length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[Schedules API] Fetch error:', error);
+    return NextResponse.json({ success: false, error: 'Failed to fetch schedules' }, { status: 500 });
   }
-
-  if (enabled !== null) {
-    const isEnabled = enabled === 'true';
-    filteredSchedules = filteredSchedules.filter(s => s.enabled === isEnabled);
-  }
-
-  return NextResponse.json({
-    success: true,
-    data: filteredSchedules,
-    count: filteredSchedules.length,
-    timestamp: new Date().toISOString(),
-  });
 }
 
 // POST - Create new schedule
@@ -188,7 +143,8 @@ export async function POST(request: NextRequest) {
     // Calculate next run
     newSchedule.nextRun = calculateNextRun(newSchedule);
 
-    schedules.push(newSchedule);
+    const collection = await getSchedulesCollection();
+    await collection.insertOne(newSchedule);
 
     return NextResponse.json({
       success: true,
@@ -217,16 +173,19 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const scheduleIndex = schedules.findIndex(s => s.id === id);
-    if (scheduleIndex === -1) {
+    const collection = await getSchedulesCollection();
+    
+    // Find the schedule first to recalculate nextRun if necessary
+    const existingSchedule = await collection.findOne({ id });
+    if (!existingSchedule) {
       return NextResponse.json(
         { success: false, error: 'Schedule not found' },
         { status: 404 }
       );
     }
 
-    const updatedSchedule: Schedule = {
-      ...schedules[scheduleIndex],
+    const updatedSchedule: any = {
+      ...existingSchedule,
       ...updates,
       updatedAt: new Date().toISOString(),
     };
@@ -236,7 +195,10 @@ export async function PATCH(request: NextRequest) {
       updatedSchedule.nextRun = calculateNextRun(updatedSchedule);
     }
 
-    schedules[scheduleIndex] = updatedSchedule;
+    // Don't modify the _id field during update
+    const { _id, ...updatePayload } = updatedSchedule;
+
+    await collection.updateOne({ id }, { $set: updatePayload });
 
     return NextResponse.json({
       success: true,
@@ -265,19 +227,19 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const scheduleIndex = schedules.findIndex(s => s.id === id);
-    if (scheduleIndex === -1) {
+    const collection = await getSchedulesCollection();
+    const result = await collection.deleteOne({ id });
+
+    if (result.deletedCount === 0) {
       return NextResponse.json(
         { success: false, error: 'Schedule not found' },
         { status: 404 }
       );
     }
 
-    const deleted = schedules.splice(scheduleIndex, 1)[0];
-
     return NextResponse.json({
       success: true,
-      data: deleted,
+      data: { id },
       message: 'Schedule deleted successfully',
     });
   } catch (error) {

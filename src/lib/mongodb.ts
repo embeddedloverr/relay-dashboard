@@ -42,3 +42,8 @@ export async function getDevicesCollection(): Promise<Collection> {
   const database = await getDatabase();
   return database.collection('devices');
 }
+
+export async function getSchedulesCollection(): Promise<Collection> {
+  const database = await getDatabase();
+  return database.collection('schedules');
+}
