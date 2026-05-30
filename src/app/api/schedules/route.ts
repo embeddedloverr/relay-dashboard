@@ -5,6 +5,7 @@ export interface Schedule {
   id: string;
   name: string;
   relayId: string;
+  mac?: string;
   enabled: boolean;
   action: 'ON' | 'OFF' | 'TOGGLE';
   scheduleType: 'once' | 'daily' | 'weekly' | 'interval';
@@ -128,6 +129,7 @@ export async function POST(request: NextRequest) {
       id: `sch-${Date.now()}`,
       name: body.name,
       relayId: body.relayId,
+      mac: body.mac,
       enabled: body.enabled ?? true,
       action: body.action || 'ON',
       scheduleType: body.scheduleType || 'daily',

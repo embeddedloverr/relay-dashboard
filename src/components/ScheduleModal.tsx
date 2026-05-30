@@ -146,6 +146,7 @@ export default function ScheduleModal({
     if (!validate()) return;
 
     const now = new Date().toISOString();
+    const mac = getActiveMac() || undefined;
     
     // Save first entry as the primary schedule in the local store
     const firstEntry = entries[0];
@@ -155,6 +156,7 @@ export default function ScheduleModal({
       updateSchedule(schedule.id, {
         name: scheduleName,
         relayId,
+        mac,
         time: firstEntry.on,
         // Calculate duration from on/off times
         durationMinutes: calculateDuration(firstEntry.on, firstEntry.off),
@@ -165,6 +167,7 @@ export default function ScheduleModal({
         id: generateId('sch'),
         name: scheduleName,
         relayId,
+        mac,
         enabled: true,
         action: 'ON',
         scheduleType: 'daily',

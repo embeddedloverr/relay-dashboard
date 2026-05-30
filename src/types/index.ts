@@ -18,6 +18,7 @@ export interface Schedule {
   id: string;
   name: string;
   relayId: string;
+  mac?: string; // Device MAC address for cron execution
   enabled: boolean;
   action: 'ON' | 'OFF' | 'TOGGLE';
   scheduleType: 'once' | 'daily' | 'weekly' | 'interval';
