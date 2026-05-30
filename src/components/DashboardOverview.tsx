@@ -18,7 +18,9 @@ import StatsCard from './StatsCard';
 import RelayCard from './RelayCard';
 import DeviceHealthPanel from './DeviceHealthPanel';
 import { cn, formatTimeAgo, formatTime, getOffTime } from '@/lib/utils';
+import { DayOfWeek } from '@/types';
 
+const DAYS: DayOfWeek[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 const POLL_INTERVAL = 10000; // 10 seconds
 
 export default function DashboardOverview() {
@@ -226,6 +228,24 @@ export default function DashboardOverview() {
                               <span className="font-mono text-relay-off">{formatTime(offTime)}</span>
                             </span>
                           )}
+                        </div>
+                      )}
+                      {/* Days (for weekly schedules) */}
+                      {schedule.scheduleType === 'weekly' && schedule.days && schedule.days.length > 0 && (
+                        <div className="flex items-center gap-1 mb-1 flex-wrap">
+                          {DAYS.map(day => (
+                            <span
+                              key={day}
+                              className={cn(
+                                'text-[10px] font-bold px-1.5 py-0.5 rounded',
+                                (schedule.days as string[]).includes(day)
+                                  ? 'bg-accent-cyan/20 text-accent-cyan'
+                                  : 'text-industrial-600'
+                              )}
+                            >
+                              {day.slice(0, 2)}
+                            </span>
+                          ))}
                         </div>
                       )}
                       <div className="flex items-center gap-2 text-xs text-industrial-400">

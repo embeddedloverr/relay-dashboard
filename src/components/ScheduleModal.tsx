@@ -46,6 +46,8 @@ export default function ScheduleModal({
     { relay: 1, on: '08:00', off: '20:00' },
   ]);
   const [scheduleName, setScheduleName] = useState('');
+  const [scheduleType, setScheduleType] = useState<'daily' | 'weekly'>('daily');
+  const [selectedDays, setSelectedDays] = useState<DayOfWeek[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -56,6 +58,8 @@ export default function ScheduleModal({
   useEffect(() => {
     if (schedule) {
       setScheduleName(schedule.name);
+      setScheduleType(schedule.scheduleType === 'weekly' ? 'weekly' : 'daily');
+      setSelectedDays(schedule.days as DayOfWeek[] || []);
       // Convert existing schedule to device entry format
       const relayNum = parseInt(schedule.relayId.split('-')[1], 10) || 1;
       const onTime = schedule.time || '08:00';
@@ -71,6 +75,8 @@ export default function ScheduleModal({
       setEntries([{ relay: relayNum, on: onTime, off: offTime }]);
     } else {
       setScheduleName('');
+      setScheduleType('daily');
+      setSelectedDays([]);
       setEntries([{ relay: 1, on: '08:00', off: '20:00' }]);
     }
     setErrors({});
@@ -102,6 +108,14 @@ export default function ScheduleModal({
     ));
   };
 
+  const toggleDay = (day: DayOfWeek) => {
+    setSelectedDays(prev => 
+      prev.includes(day) 
+        ? prev.filter(d => d !== day) 
+        : [...prev, day]
+    );
+  };
+
   // Check if a relay is in auto mode
   const isRelayAuto = (relayNum: number): boolean => {
     const relay = relays.find(r => r.id === `relay-${relayNum}`);
@@ -118,6 +132,10 @@ export default function ScheduleModal({
 
     if (!scheduleName.trim()) {
       newErrors.name = 'Schedule name is required';
+    }
+
+    if (scheduleType === 'weekly' && selectedDays.length === 0) {
+      newErrors.days = 'Select at least one day';
     }
 
     entries.forEach((entry, i) => {
@@ -157,6 +175,8 @@ export default function ScheduleModal({
         name: scheduleName,
         relayId,
         mac,
+        scheduleType,
+        days: scheduleType === 'weekly' ? selectedDays : undefined,
         time: firstEntry.on,
         // Calculate duration from on/off times
         durationMinutes: calculateDuration(firstEntry.on, firstEntry.off),
@@ -170,7 +190,8 @@ export default function ScheduleModal({
         mac,
         enabled: true,
         action: 'ON',
-        scheduleType: 'daily',
+        scheduleType,
+        days: scheduleType === 'weekly' ? selectedDays : undefined,
         time: firstEntry.on,
         durationMinutes: calculateDuration(firstEntry.on, firstEntry.off),
         createdAt: now,
@@ -273,6 +294,68 @@ export default function ScheduleModal({
               </p>
             )}
           </div>
+
+          {/* Schedule Type */}
+          <div>
+            <label className="input-label">Schedule Type</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setScheduleType('daily')}
+                className={cn(
+                  'flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2',
+                  scheduleType === 'daily'
+                    ? 'bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30'
+                    : 'bg-industrial-700/50 text-industrial-300 border border-industrial-600 hover:border-industrial-500'
+                )}
+              >
+                <Clock size={16} />
+                Every Day
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduleType('weekly')}
+                className={cn(
+                  'flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2',
+                  scheduleType === 'weekly'
+                    ? 'bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30'
+                    : 'bg-industrial-700/50 text-industrial-300 border border-industrial-600 hover:border-industrial-500'
+                )}
+              >
+                <Calendar size={16} />
+                Specific Days
+              </button>
+            </div>
+          </div>
+
+          {/* Day Selector (for weekly) */}
+          {scheduleType === 'weekly' && (
+            <div>
+              <label className="input-label">Active Days</label>
+              <div className="flex gap-2 flex-wrap">
+                {DAYS.map(day => (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => toggleDay(day)}
+                    className={cn(
+                      'w-12 h-10 rounded-lg text-xs font-bold transition-all',
+                      selectedDays.includes(day)
+                        ? 'bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30 shadow-sm shadow-accent-cyan/20'
+                        : 'bg-industrial-700/50 text-industrial-400 border border-industrial-600 hover:border-industrial-500 hover:text-industrial-200'
+                    )}
+                  >
+                    {getDayShort(day)}
+                  </button>
+                ))}
+              </div>
+              {errors.days && (
+                <p className="text-xs text-relay-off mt-1 flex items-center gap-1">
+                  <AlertCircle size={12} /> {errors.days}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Schedule Entries */}
           <div>
@@ -389,6 +472,15 @@ export default function ScheduleModal({
               <span className="text-relay-on">
                 {JSON.stringify(entries.map(e => ({ relay: e.relay, on: e.on, off: e.off })))}
               </span>
+              {scheduleType === 'weekly' && selectedDays.length > 0 && (
+                <>
+                  <br />
+                  <span className="text-industrial-500">Days: </span>
+                  <span className="text-accent-orange">
+                    {selectedDays.map(d => getDayShort(d)).join(', ')}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
