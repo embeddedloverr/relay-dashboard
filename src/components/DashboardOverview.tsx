@@ -17,7 +17,7 @@ import { useRelayStore } from '@/store/relayStore';
 import StatsCard from './StatsCard';
 import RelayCard from './RelayCard';
 import DeviceHealthPanel from './DeviceHealthPanel';
-import { cn, formatTimeAgo } from '@/lib/utils';
+import { cn, formatTimeAgo, formatTime, getOffTime } from '@/lib/utils';
 
 const POLL_INTERVAL = 10000; // 10 seconds
 
@@ -194,6 +194,9 @@ export default function DashboardOverview() {
               <div className="space-y-3">
                 {upcomingSchedules.map(schedule => {
                   const relay = relays.find(r => r.id === schedule.relayId);
+                  const offTime = schedule.time && schedule.durationMinutes
+                    ? getOffTime(schedule.time, schedule.durationMinutes)
+                    : null;
                   return (
                     <div 
                       key={schedule.id}
@@ -210,6 +213,21 @@ export default function DashboardOverview() {
                           {schedule.action}
                         </span>
                       </div>
+                      {/* ON / OFF times */}
+                      {schedule.time && (
+                        <div className="flex items-center gap-3 mb-1">
+                          <span className="text-xs flex items-center gap-1">
+                            <span className="text-industrial-400">ON:</span>
+                            <span className="font-mono text-relay-on">{formatTime(schedule.time)}</span>
+                          </span>
+                          {offTime && (
+                            <span className="text-xs flex items-center gap-1">
+                              <span className="text-industrial-400">OFF:</span>
+                              <span className="font-mono text-relay-off">{formatTime(offTime)}</span>
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <div className="flex items-center gap-2 text-xs text-industrial-400">
                         <span>{relay?.name}</span>
                         <span>•</span>

@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Schedule } from '@/types';
 import { useRelayStore } from '@/store/relayStore';
-import { cn, formatTime, formatTimeAgo, getDayShort } from '@/lib/utils';
+import { cn, formatTime, getOffTime, formatTimeAgo, getDayShort } from '@/lib/utils';
 
 interface ScheduleCardProps {
   schedule: Schedule;
@@ -117,6 +117,20 @@ export default function ScheduleCard({ schedule, onEdit }: ScheduleCardProps) {
 
       {/* Schedule Details */}
       <div className="grid grid-cols-2 gap-3 mb-4">
+        {schedule.time && (
+          <div className="text-sm">
+            <span className="text-industrial-400">ON:</span>
+            <span className="ml-2 font-mono text-relay-on">{formatTime(schedule.time)}</span>
+          </div>
+        )}
+        {schedule.time && schedule.durationMinutes && (
+          <div className="text-sm">
+            <span className="text-industrial-400">OFF:</span>
+            <span className="ml-2 font-mono text-relay-off">
+              {formatTime(getOffTime(schedule.time, schedule.durationMinutes))}
+            </span>
+          </div>
+        )}
         {schedule.durationMinutes && (
           <div className="text-sm">
             <span className="text-industrial-400">Duration:</span>

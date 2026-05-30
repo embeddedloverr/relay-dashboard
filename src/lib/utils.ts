@@ -29,6 +29,14 @@ export function formatTime(time: string): string {
   return `${hour12}:${minutes} ${ampm}`;
 }
 
+export function getOffTime(onTime: string, durationMinutes: number): string {
+  const [h, m] = onTime.split(':').map(Number);
+  const totalMinutes = h * 60 + m + durationMinutes;
+  const offH = Math.floor(totalMinutes / 60) % 24;
+  const offM = totalMinutes % 60;
+  return `${String(offH).padStart(2, '0')}:${String(offM).padStart(2, '0')}`;
+}
+
 export function getDayName(day: DayOfWeek): string {
   const names: Record<DayOfWeek, string> = {
     MON: 'Monday',
