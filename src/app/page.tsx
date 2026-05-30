@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import DashboardOverview from '@/components/DashboardOverview';
@@ -8,12 +8,18 @@ import RelaysPanel from '@/components/RelaysPanel';
 import SchedulesPanel from '@/components/SchedulesPanel';
 import ActivityLogPanel from '@/components/ActivityLogPanel';
 import SettingsPanel from '@/components/SettingsPanel';
+import { useAuthStore } from '@/store/authStore';
 
 type TabType = 'dashboard' | 'relays' | 'schedules' | 'logs' | 'settings';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { fetchSession } = useAuthStore();
+
+  useEffect(() => {
+    fetchSession();
+  }, [fetchSession]);
 
   const renderContent = () => {
     switch (activeTab) {

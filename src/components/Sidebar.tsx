@@ -7,9 +7,11 @@ import {
   History, 
   Settings,
   ChevronRight,
-  Layers
+  Layers,
+  LogOut
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/authStore';
 
 type TabType = 'dashboard' | 'relays' | 'schedules' | 'logs' | 'settings';
 
@@ -29,6 +31,8 @@ const navItems = [
 ];
 
 export default function Sidebar({ activeTab, onTabChange, isOpen, onClose }: SidebarProps) {
+  const { user, logout } = useAuthStore();
+
   return (
     <>
       {/* Mobile Overlay */}
@@ -76,8 +80,20 @@ export default function Sidebar({ activeTab, onTabChange, isOpen, onClose }: Sid
           ))}
         </nav>
 
-        {/* Quick Stats */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-industrial-700">
+        {/* Bottom Section */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-industrial-700 space-y-3">
+          {/* Logout Button */}
+          {user && (
+            <button
+              onClick={logout}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all duration-200 group text-industrial-300 hover:bg-relay-off/10 hover:text-relay-off border border-transparent hover:border-relay-off/30"
+            >
+              <LogOut size={20} className="group-hover:scale-110 transition-transform duration-200" />
+              <span className="font-medium flex-1">Sign Out</span>
+            </button>
+          )}
+
+          {/* System Status */}
           <div className="flex items-center gap-3 p-3 bg-industrial-700/30 rounded-xl">
             <div className="w-10 h-10 rounded-lg bg-industrial-600 flex items-center justify-center">
               <Layers size={20} className="text-accent-cyan" />
